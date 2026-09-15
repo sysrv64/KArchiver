@@ -622,6 +622,7 @@ fun BrowserScreen(
     preview.file?.let { file ->
         PreviewSheet(
             fileName = file.name,
+            archive = file,
             preview = preview,
             onDismiss = vm::closePreview,
             onVerify = { vm.verifyArchive(file, preview.passwordUsed) },
@@ -1476,6 +1477,7 @@ private fun PasswordField(
 @Composable
 private fun PreviewSheet(
     fileName: String,
+    archive: File,
     preview: ArchivePreviewUiState,
     onDismiss: () -> Unit,
     onVerify: () -> Unit,
@@ -1483,7 +1485,18 @@ private fun PreviewSheet(
     onExtract: () -> Unit
 ) {
     var password by remember(fileName) { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    var fullMode by remember(fileName) { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val scope = rememberCoroutineScope()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        if (fullMode || sheetState.targetValue == SheetValue.Expanded) {
+            ArchiveExplorerRoute(
+                archive = archive,
+                password = preview.passwordUsed,
+                onClose = { fullMode = false; onDismiss() },
+                modifier = Modifier.fillMaxHeight()
+            )
+        } else {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1504,6 +1517,14 @@ private fun PreviewSheet(
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(onClick = onVerify) { Text("Verify") }
+                FilledTonalButton(onClick = {
+                    fullMode = true
+                    scope.launch { sheetState.expand() }
+                }) {
+                    Icon(Icons.Filled.FolderOpen, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Open")
+                }
                 FilledTonalButton(onClick = onExtract) {
                     Icon(Icons.Filled.FolderOpen, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
@@ -1615,6 +1636,7 @@ private fun PreviewSheet(
                     }
                 }
             }
+        }
         }
     }
 }
