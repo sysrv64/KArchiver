@@ -625,6 +625,7 @@ fun BrowserScreen(
             archive = file,
             preview = preview,
             onDismiss = vm::closePreview,
+            onExitToFolder = { vm.closePreview(); vm.navigateTo(it) },
             onVerify = { vm.verifyArchive(file, preview.passwordUsed) },
             onUnlock = { password -> vm.openPreview(file, password) },
             onExtract = {
@@ -1043,7 +1044,7 @@ private fun FileSearchField(
 }
 
 @Composable
-private fun SelectionTopBar(count: Int, onClose: () -> Unit, onSelectAll: () -> Unit) {
+internal fun SelectionTopBar(count: Int, onClose: () -> Unit, onSelectAll: () -> Unit) {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Transparent,
@@ -1060,7 +1061,7 @@ private fun SelectionTopBar(count: Int, onClose: () -> Unit, onSelectAll: () -> 
 }
 
 @Composable
-private fun Breadcrumbs(
+internal fun Breadcrumbs(
     current: File,
     volumes: List<AppVolume> = emptyList(),
     onNavigate: (File) -> Unit,
@@ -1105,7 +1106,7 @@ private fun Breadcrumbs(
 }
 
 @Composable
-private fun FileList(
+internal fun FileList(
     state: BrowserUiState,
     listState: LazyListState,
     onItemClick: (FileItem) -> Unit,
@@ -1134,7 +1135,7 @@ private fun FileList(
 }
 
 @Composable
-private fun FileGrid(
+internal fun FileGrid(
     state: BrowserUiState,
     gridState: LazyGridState,
     onItemClick: (FileItem) -> Unit,
@@ -1289,7 +1290,7 @@ private fun FileGridCard(
 }
 
 @Composable
-private fun SelectionBottomBar(
+internal fun SelectionBottomBar(
     modifier: Modifier = Modifier,
     visible: Boolean,
     canExtract: Boolean,
@@ -1480,6 +1481,7 @@ private fun PreviewSheet(
     archive: File,
     preview: ArchivePreviewUiState,
     onDismiss: () -> Unit,
+    onExitToFolder: (File) -> Unit,
     onVerify: () -> Unit,
     onUnlock: (String) -> Unit,
     onExtract: () -> Unit
@@ -1494,7 +1496,8 @@ private fun PreviewSheet(
                 archive = archive,
                 password = preview.passwordUsed,
                 onClose = { fullMode = false; onDismiss() },
-                modifier = Modifier.fillMaxHeight()
+                modifier = Modifier.fillMaxHeight(),
+                onExitToFolder = onExitToFolder
             )
         } else {
         Column(
@@ -1690,10 +1693,11 @@ private fun ancestorsOf(current: File, volumes: List<AppVolume> = emptyList()): 
     }
 }
 
-private fun metaText(item: FileItem): String {
+internal fun metaText(item: FileItem): String {
     val type = if (item.isDirectory) "Folder" else item.extension.uppercase().ifEmpty { "File" }
     val size = if (item.isDirectory) "" else " | ${formatSize(item.size)}"
-    return "$type$size | ${formatDate(item.lastModified)}"
+    val date = if (item.lastModified > 0) " | ${formatDate(item.lastModified)}" else ""
+    return "$type$size$date"
 }
 
 private fun sortLabel(sort: SortBy): String = when (sort) {
@@ -1703,7 +1707,7 @@ private fun sortLabel(sort: SortBy): String = when (sort) {
     SortBy.TYPE -> "Type"
 }
 
-private fun formatSize(bytes: Long): String {
+internal fun formatSize(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     val kb = bytes / 1024.0; if (kb < 1024) return String.format("%.1f KB", kb)
     val mb = kb / 1024.0; if (mb < 1024) return String.format("%.1f MB", mb)
