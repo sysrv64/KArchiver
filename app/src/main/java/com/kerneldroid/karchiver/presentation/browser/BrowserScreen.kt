@@ -13,6 +13,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,7 +23,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -55,9 +55,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -245,20 +247,22 @@ fun BrowserScreen(
                     onToggleBar()
                 }
             ) {
-            if (searchActive) {
-                SearchTopBar(
-                    query = state.query,
-                    onQueryChange = vm::setQuery,
-                    onClose = { searchActive = false; vm.setQuery("") },
-                    resultCount = state.items.size
-                )
-            } else if (state.isSelectionMode) {
+            if (state.isSelectionMode) {
                 SelectionTopBar(
                     count = state.selected.size,
                     onClose = vm::clearSelection,
                     onSelectAll = vm::selectAll
                 )
             } else {
+                val scheme = MaterialTheme.motionScheme
+                Box {
+                    AnimatedVisibility(
+                        visible = !searchActive,
+                        enter = fadeIn(scheme.defaultEffectsSpec()) +
+                            slideInVertically(scheme.fastSpatialSpec()) { it / 4 },
+                        exit = fadeOut(scheme.defaultEffectsSpec()) +
+                            slideOutVertically(scheme.fastSpatialSpec()) { -it / 4 }
+                    ) {
                 Column {
                     BrowserTopBar(
                         current = state.currentDir,
@@ -284,6 +288,21 @@ fun BrowserScreen(
                         onNavigate = vm::navigateTo,
                         onOpenVolumes = { showVolumePicker = true }
                     )
+                    }
+                    }
+                    AnimatedVisibility(
+                        visible = searchActive,
+                        enter = fadeIn(scheme.defaultEffectsSpec()) +
+                            slideInVertically(scheme.fastSpatialSpec()) { -it / 4 },
+                        exit = fadeOut(scheme.defaultEffectsSpec()) +
+                            slideOutVertically(scheme.fastSpatialSpec()) { it / 4 }
+                    ) {
+                        FileSearchField(
+                            query = state.query,
+                            onQueryChange = vm::setQuery,
+                            onClose = { searchActive = false; vm.setQuery("") }
+                        )
+                    }
                 }
             }
             }
@@ -978,24 +997,31 @@ private fun BrowserTopBar(
 }
 
 @Composable
-private fun SearchTopBar(
+private fun FileSearchField(
     query: String,
     onQueryChange: (String) -> Unit,
-    onClose: () -> Unit,
-    resultCount: Int
+    onClose: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    var focused by remember { mutableStateOf(false) }
+    val sidePadding by animateDpAsState(
+        targetValue = if (focused) 12.dp else 24.dp,
+        label = "searchFocusGrow"
+    )
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     SearchBar(
         inputField = {
             SearchBarDefaults.InputField(
                 query = query,
                 onQueryChange = onQueryChange,
-                onSearch = {},
-                expanded = true,
-                onExpandedChange = { if (!it) onClose() },
-                modifier = Modifier.focusRequester(focusRequester),
-                placeholder = { Text("Search: text, ext:zip, date:today, size:>10MB") },
+                onSearch = { focusManager.clearFocus() },
+                expanded = false,
+                onExpandedChange = {},
+                modifier = Modifier
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { focused = it.isFocused },
+                placeholder = { Text("Search files") },
                 leadingIcon = {
                     IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 },
@@ -1006,42 +1032,13 @@ private fun SearchTopBar(
                 }
             )
         },
-        expanded = true,
-        onExpandedChange = { if (!it) onClose() },
-        modifier = Modifier.fillMaxWidth()
+        expanded = false,
+        onExpandedChange = {},
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = sidePadding, vertical = 4.dp)
     ) {
-        Text(
-            if (query.isBlank()) "Smart search" else "$resultCount items",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
-        SEARCH_HINTS.forEach { hint ->
-            ListItem(
-                headlineContent = { Text(hint.example) },
-                supportingContent = { Text(hint.description) },
-                leadingContent = { Icon(Icons.Filled.Tune, null) },
-                modifier = Modifier.clickable { onQueryChange(appendSearchToken(query, hint.insert)) }
-            )
-        }
     }
-}
-
-private data class SearchHint(val example: String, val description: String, val insert: String)
-
-private val SEARCH_HINTS = listOf(
-    SearchHint("backup", "Plain text matches file names", ""),
-    SearchHint("ext:zip,7z", "Filter by extension, format: works too", "ext:"),
-    SearchHint("date:today", "today, yesterday, 2026-09-15, 2026-09, 2026-08-01..2026-09-01, >date", "date:"),
-    SearchHint("size:>10MB", "B KB MB GB TB, ranges like 1MB..100MB", "size:>"),
-    SearchHint("type:dir", "Only folders, or type:file", "type:"),
-    SearchHint("name:\"my backup\"", "Exact phrase in quotes", "name:\"\"")
-)
-
-private fun appendSearchToken(current: String, token: String): String {
-    if (token.isEmpty()) return current
-    val base = if (current.isBlank()) "" else current.trimEnd() + " "
-    return base + token
 }
 
 @Composable
@@ -1646,13 +1643,6 @@ private fun EmptyState(query: String) {
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            if (query.isNotBlank()) {
-                Text(
-                    "Try: ext:zip date:today size:>10MB type:dir",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
         }
     }
 }
