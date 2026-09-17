@@ -322,6 +322,7 @@ fun BrowserScreen(
             if (state.isSelectionMode) {
                 SelectionTopBar(
                     count = state.selected.size,
+                    allSelected = state.items.isNotEmpty() && state.items.all { it.file.absolutePath in state.selected },
                     onClose = vm::clearSelection,
                     onSelectAll = vm::selectAll
                 )
@@ -1175,7 +1176,12 @@ private fun BrowserTopBar(
 }
 
 @Composable
-internal fun SelectionTopBar(count: Int, onClose: () -> Unit, onSelectAll: () -> Unit) {
+internal fun SelectionTopBar(
+    count: Int,
+    allSelected: Boolean,
+    onClose: () -> Unit,
+    onSelectAll: () -> Unit
+) {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Transparent,
@@ -1186,7 +1192,13 @@ internal fun SelectionTopBar(count: Int, onClose: () -> Unit, onSelectAll: () ->
         },
         title = { Text("Selected: $count", style = MaterialTheme.typography.titleLarge) },
         actions = {
-            IconButton(onClick = onSelectAll) { Icon(Icons.Filled.SelectAll, "Select all") }
+            IconButton(onClick = onSelectAll) {
+                if (allSelected) {
+                    Icon(Icons.Filled.Deselect, "Deselect all")
+                } else {
+                    Icon(Icons.Filled.SelectAll, "Select all")
+                }
+            }
         }
     )
 }

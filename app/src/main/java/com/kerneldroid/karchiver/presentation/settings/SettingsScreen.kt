@@ -1,18 +1,20 @@
 package com.kerneldroid.karchiver.presentation.settings
 
-import android.os.Build
-import android.os.SystemClock
 import android.app.Activity
 import android.net.Uri
+import android.os.Build
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,14 +35,19 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Usb
-import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
@@ -72,8 +80,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -81,6 +89,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kerneldroid.karchiver.BuildConfig
 import com.kerneldroid.karchiver.data.AppSettings
 import com.kerneldroid.karchiver.data.SettingsRepository
 import com.kerneldroid.karchiver.data.SortBy
@@ -89,10 +98,10 @@ import com.kerneldroid.karchiver.data.elevation.RootEngine
 import com.kerneldroid.karchiver.data.elevation.RootStatus
 import com.kerneldroid.karchiver.data.elevation.ShizukuEngine
 import com.kerneldroid.karchiver.data.elevation.ShizukuEngine.ShizukuStatus
-import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
-import com.kerneldroid.karchiver.presentation.components.detectBarHold
 import com.kerneldroid.karchiver.data.storage.AppVolume
 import com.kerneldroid.karchiver.data.storage.VolumeKind
+import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
+import com.kerneldroid.karchiver.presentation.components.detectBarHold
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -126,42 +135,40 @@ private val supportsDynamic = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 private val scanSizes = listOf(1, 5, 20, 100)
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+enum class SettingsCategory(
+    val route: String,
+    val title: String,
+    val subtitle: String,
+    val icon: ImageVector
+) {
+    APPEARANCE("settings/appearance", "Appearance", "Theme, dynamic color, palettes", Icons.Filled.Palette),
+    FILES("settings/files", "Files", "Sorting, hidden files, RAR, history", Icons.Filled.SortByAlpha),
+    SEARCH("settings/search", "Search", "Content search, archives, scan limit", Icons.Filled.Search),
+    STORAGE("settings/storage", "Storage", "Access mode, granted folders", Icons.Filled.Storage),
+    ELEVATION("settings/elevation", "Elevation", "Shizuku or root access", Icons.Filled.Security),
+    ABOUT("settings/about", "About", "Version, license, links", Icons.Filled.Info)
+}
+
 @Composable
-fun SettingsScreen(
-    settings: AppSettings,
-    repo: SettingsRepository,
+private fun categoryAccent(category: SettingsCategory): Pair<Color, Color> {
+    val scheme = MaterialTheme.colorScheme
+    return when (category.ordinal % 3) {
+        0 -> scheme.primaryContainer to scheme.onPrimaryContainer
+        1 -> scheme.secondaryContainer to scheme.onSecondaryContainer
+        else -> scheme.tertiaryContainer to scheme.onTertiaryContainer
+    }
+}
+
+@Composable
+private fun SettingsScaffold(
+    title: String,
     onBack: () -> Unit,
     barLifted: Boolean = false,
     onToggleBar: () -> Unit = {},
-    safAutoFallback: Boolean = true,
-    onSetSafAutoFallback: (Boolean) -> Unit = {},
-    safGrants: Map<String, Uri> = emptyMap(),
-    storageVolumes: List<AppVolume> = emptyList(),
-    forcedSaf: Set<String> = emptySet(),
-    onForgetGrant: (String) -> Unit = {},
-    onSetForceSaf: (String, Boolean) -> Unit = { _, _ -> },
-    onGrantPicked: (Uri, String) -> Unit = { _, _ -> }
+    content: @Composable () -> Unit
 ) {
-    BackHandler { onBack() }
-    val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    val activity = LocalContext.current as? Activity
-    var rarUnlockAt by remember { mutableLongStateOf(0L) }
-    var showElevationDialog by remember { mutableStateOf(false) }
-    val rootStatus by RootEngine.status.collectAsStateWithLifecycle(initialValue = RootStatus.Unknown)
-    val shizukuStatus by ShizukuEngine.status.collectAsStateWithLifecycle(initialValue = ShizukuStatus.NoBinder)
-    val rarInteractions = remember { MutableInteractionSource() }
-    var rarUnlockJob by remember { mutableStateOf<Job?>(null) }
-    LaunchedEffect(rarInteractions) {
-        rarInteractions.interactions.collect { interaction ->
-            if (interaction is PressInteraction.Release || interaction is PressInteraction.Cancel) {
-                rarUnlockJob?.cancel()
-                rarUnlockJob = null
-            }
-        }
-    }
-
+    BackHandler { onBack() }
     RoundedTopScaffold(
         barLifted = barLifted,
         topBar = {
@@ -174,7 +181,7 @@ fun SettingsScreen(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = Color.Transparent
                 ),
-                title = { Text("Settings") },
+                title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -191,110 +198,170 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            SectionHeader("Appearance")
-            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            content()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun SettingsScreen(
+    settings: AppSettings,
+    onBack: () -> Unit,
+    onOpen: (SettingsCategory) -> Unit,
+    barLifted: Boolean = false,
+    onToggleBar: () -> Unit = {}
+) {
+    SettingsScaffold("Settings", onBack, barLifted, onToggleBar) {
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            SettingsCategory.entries.forEachIndexed { index, category ->
+                val (container, onContainer) = categoryAccent(category)
                 SegmentedListItem(
-                    onClick = {},
-                    shapes = ListItemDefaults.segmentedShapes(index = 0, count = 3),
+                    onClick = { onOpen(category) },
+                    shapes = ListItemDefaults.segmentedShapes(index = index, count = SettingsCategory.entries.size),
                     colors = ListItemDefaults.segmentedColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     ),
+                    contentPadding = PaddingValues(vertical = 14.dp, horizontal = 14.dp),
                     leadingContent = {
-                        AnimatedContent(themeOptions.first { it.mode == settings.themeMode }.icon) {
-                            Icon(it, null)
-                        }
+                        Icon(
+                            category.icon,
+                            null,
+                            tint = onContainer,
+                            modifier = Modifier
+                                .background(container, CircleShape)
+                                .padding(10.dp)
+                        )
                     },
                     supportingContent = {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            themeOptions.forEachIndexed { index, option ->
-                                val selected = settings.themeMode == option.mode
-                                ToggleButton(
-                                    checked = selected,
-                                    onCheckedChange = {
-                                        if (!selected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                        scope.launch { repo.setThemeMode(option.mode) }
-                                    },
-                                    shapes = when (index) {
-                                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                        themeOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .semantics { role = Role.RadioButton }
-                                ) {
-                                    Icon(option.icon, option.label)
-                                }
+                        Text(
+                            text = category.subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
+                ) {
+                    Text(category.title, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun SettingsAppearanceScreen(
+    settings: AppSettings,
+    repo: SettingsRepository,
+    onBack: () -> Unit,
+    barLifted: Boolean = false,
+    onToggleBar: () -> Unit = {}
+) {
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    SettingsScaffold("Appearance", onBack, barLifted, onToggleBar) {
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            SegmentedListItem(
+                onClick = {},
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 3),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = {
+                    AnimatedContent(themeOptions.first { it.mode == settings.themeMode }.icon) {
+                        Icon(it, null)
+                    }
+                },
+                supportingContent = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        themeOptions.forEachIndexed { index, option ->
+                            val selected = settings.themeMode == option.mode
+                            ToggleButton(
+                                checked = selected,
+                                onCheckedChange = {
+                                    if (!selected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                    scope.launch { repo.setThemeMode(option.mode) }
+                                },
+                                shapes = when (index) {
+                                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                    themeOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .semantics { role = Role.RadioButton }
+                            ) {
+                                Icon(option.icon, option.label)
                             }
                         }
                     }
-                ) {
-                    Text("Theme")
                 }
-                SegmentedListItem(
-                    onClick = {
-                        if (!supportsDynamic) return@SegmentedListItem
-                        haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                        scope.launch {
-                            if (settings.dynamicColor) {
-                                repo.setSeedColor(seedColors.first().color.value.toLong())
-                            } else {
-                                repo.setDynamicColor(true)
+            ) {
+                Text("Theme")
+            }
+            SegmentedListItem(
+                onClick = {
+                    if (!supportsDynamic) return@SegmentedListItem
+                    haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                    scope.launch {
+                        if (settings.dynamicColor) {
+                            repo.setSeedColor(seedColors.first().color.value.toLong())
+                        } else {
+                            repo.setDynamicColor(true)
+                        }
+                    }
+                },
+                shapes = ListItemDefaults.segmentedShapes(index = 1, count = 3),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = { Icon(Icons.Filled.Palette, null) },
+                supportingContent = {
+                    Text(
+                        if (supportsDynamic) "Follow the wallpaper colors"
+                        else "Requires Android 12 or newer"
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = settings.dynamicColor,
+                        enabled = supportsDynamic,
+                        onCheckedChange = { checked ->
+                            haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)
+                            scope.launch {
+                                if (checked) repo.setDynamicColor(true)
+                                else repo.setSeedColor(
+                                    settings.seedColor ?: seedColors.first().color.value.toLong()
+                                )
                             }
                         }
-                    },
-                    shapes = ListItemDefaults.segmentedShapes(index = 1, count = 3),
-                    colors = ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                    leadingContent = { Icon(Icons.Filled.Palette, null) },
-                    supportingContent = {
+                    )
+                },
+            ) {
+                Text("Dynamic color")
+            }
+            SegmentedListItem(
+                onClick = {},
+                shapes = ListItemDefaults.segmentedShapes(index = 2, count = 3),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                supportingContent = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    ) {
                         Text(
-                            if (supportsDynamic) "Follow the wallpaper colors"
-                            else "Requires Android 12 or newer"
+                            if (settings.dynamicColor || settings.seedColor == null) "Dynamic"
+                            else seedColors.firstOrNull { it.color.value.toLong() == settings.seedColor }?.name
+                                ?: "Custom"
                         )
-                    },
-                    trailingContent = {
-                        Switch(
-                            checked = settings.dynamicColor,
-                            enabled = supportsDynamic,
-                            onCheckedChange = { checked ->
-                                haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)
-                                scope.launch {
-                                    if (checked) repo.setDynamicColor(true)
-                                    else repo.setSeedColor(
-                                        settings.seedColor ?: seedColors.first().color.value.toLong()
-                                    )
-                                }
-                            }
-                        )
-                    },
-                ) {
-                    Text("Dynamic color")
-                }
-                SegmentedListItem(
-                    onClick = {},
-                    shapes = ListItemDefaults.segmentedShapes(index = 2, count = 3),
-                    colors = ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                    supportingContent = {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        ) {
-                            Text(
-                                if (settings.dynamicColor || settings.seedColor == null) "Dynamic"
-                                else seedColors.firstOrNull { it.color.value.toLong() == settings.seedColor }?.name
-                                    ?: "Custom"
-                            )
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                itemsIndexed(seedColors) { index, seed ->
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            itemsIndexed(seedColors) { index, seed ->
                                 val argb = seed.color.value.toLong()
                                 val selected = !settings.dynamicColor && settings.seedColor == argb
                                 val onSeedColor =
@@ -337,284 +404,355 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    }
-                ) {
-                    Text("Custom color")
                 }
-            }
-            SectionHeader("File manager")
-            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                SegmentedListItem(
-                    onClick = {},
-                    shapes = ListItemDefaults.segmentedShapes(index = 0, count = 5),
-                    colors = ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                    leadingContent = { Icon(Icons.Filled.SortByAlpha, null) },
-                    supportingContent = {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            SortBy.entries.forEachIndexed { index, sort ->
-                                val selected = settings.defaultSort == sort
-                                ToggleButton(
-                                    checked = selected,
-                                    onCheckedChange = {
-                                        if (!selected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                        scope.launch { repo.setDefaultSort(sort) }
-                                    },
-                                    shapes = when (index) {
-                                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                        SortBy.entries.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .semantics { role = Role.RadioButton }
-                                ) {
-                                    Text(sortLabel(sort), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                        }
-                    }
-                ) {
-                    Text("Default sort")
-                }
-                SettingSwitch(
-                    index = 1,
-                    count = 5,
-                    title = "Folders first",
-                    subtitle = "Always list folders above files, no matter the sort order.",
-                    checked = settings.foldersFirst,
-                    onCheckedChange = { scope.launch { repo.setFoldersFirst(it) } }
-                )
-                SettingSwitch(
-                    index = 2,
-                    count = 5,
-                    title = "Confirm before delete",
-                    subtitle = "Ask for confirmation before deleting files and folders.",
-                    checked = settings.confirmDelete,
-                    onCheckedChange = { scope.launch { repo.setConfirmDelete(it) } }
-                )
-                SegmentedListItem(
-                    onClick = {},
-                    shapes = ListItemDefaults.segmentedShapes(index = 3, count = 5),
-                    colors = ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                    leadingContent = {
-                        Icon(
-                            if (settings.defaultView == "grid") Icons.Filled.ViewModule
-                            else Icons.AutoMirrored.Filled.ViewList,
-                            null
-                        )
-                    },
-                    supportingContent = {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            val listSelected = settings.defaultView != "grid"
-                            ToggleButton(
-                                checked = listSelected,
-                                onCheckedChange = {
-                                    if (!listSelected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                    scope.launch { repo.setDefaultView("list") }
-                                },
-                                shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .semantics { role = Role.RadioButton }
-                            ) {
-                                Text("List", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            ToggleButton(
-                                checked = !listSelected,
-                                onCheckedChange = {
-                                    if (listSelected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                    scope.launch { repo.setDefaultView("grid") }
-                                },
-                                shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .semantics { role = Role.RadioButton }
-                            ) {
-                                Text("Grid", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                ) {
-                    Text("Default view")
-                }
-                SettingSwitch(
-                    index = 4,
-                    count = 5,
-                    title = "RAR support",
-                    subtitle = if (settings.rarWriteEnabled) "Read and write. Packing unlocked."
-                        else "Read-only. Hold this row 5 seconds to unlock RAR packing.",
-                    checked = settings.rarEnabled,
-                    onCheckedChange = {
-                        if (SystemClock.uptimeMillis() - rarUnlockAt < 1000L) return@SettingSwitch
-                        scope.launch { repo.setRarEnabled(it) }
-                    },
-                    interactionSource = rarInteractions,
-                    onLongClick = {
-                        if (!settings.rarWriteEnabled) {
-                            rarUnlockJob?.cancel()
-                            rarUnlockJob = scope.launch {
-                                delay(5000L)
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                rarUnlockAt = SystemClock.uptimeMillis()
-                                repo.setRarWriteEnabled(true)
-                            }
-                        }
-                    }
-                )
-            }
-            SectionHeader("Search")
-            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                SettingSwitch(
-                    index = 0,
-                    count = 4,
-                    title = "Search inside file contents",
-                    subtitle = "Plain queries also match text inside files, not only names.",
-                    checked = settings.searchInContent,
-                    onCheckedChange = { scope.launch { repo.setSearchInContent(it) } }
-                )
-                SettingSwitch(
-                    index = 1,
-                    count = 4,
-                    title = "Search inside archives",
-                    subtitle = "Match entry names and entry contents inside zip, 7z, tar and rar archives.",
-                    checked = settings.searchInArchives,
-                    onCheckedChange = { scope.launch { repo.setSearchInArchives(it) } }
-                )
-                SettingSwitch(
-                    index = 2,
-                    count = 4,
-                    title = "Case-sensitive content search",
-                    subtitle = "Match the exact letter case when scanning file and entry contents.",
-                    checked = settings.searchCaseSensitive,
-                    onCheckedChange = { scope.launch { repo.setSearchCaseSensitive(it) } }
-                )
-                SegmentedListItem(
-                    onClick = {},
-                    shapes = ListItemDefaults.segmentedShapes(index = 3, count = 4),
-                    colors = ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                    supportingContent = {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            scanSizes.forEachIndexed { index, size ->
-                                val selected = settings.searchMaxScanMb == size
-                                ToggleButton(
-                                    checked = selected,
-                                    onCheckedChange = {
-                                        if (!selected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                        scope.launch { repo.setSearchMaxScanMb(size) }
-                                    },
-                                    shapes = when (index) {
-                                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                        scanSizes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .semantics { role = Role.RadioButton }
-                                ) {
-                                    Text("$size MB", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                        }
-                    }
-                ) {
-                    Text("Per-file content scan limit")
-                }
-                Text(
-                    "Use content:\"text\" to match file contents and archive:\"name\" to match entries inside archives. Plain words match names, or contents when enabled above.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-            }
-            SectionHeader("Storage")
-            StorageSection(
-                safAutoFallback = safAutoFallback,
-                onSetSafAutoFallback = onSetSafAutoFallback,
-                safGrants = safGrants,
-                volumes = storageVolumes,
-                forcedSaf = forcedSaf,
-                onForgetGrant = onForgetGrant,
-                onSetForceSaf = onSetForceSaf,
-                onGrantPicked = onGrantPicked
-            )
-            SectionHeader("Elevation")
-            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                SegmentedListItem(
-                    onClick = { showElevationDialog = true },
-                    shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
-                    colors = ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                    leadingContent = { Icon(Icons.Filled.Security, null) },
-                    supportingContent = {
-                        Text(
-                            when (settings.elevationMode) {
-                                "shizuku" -> "Shizuku · ${shizukuStatusLabel(shizukuStatus)}"
-                                "root" -> "Root · ${rootStatusLabel(rootStatus)}"
-                                else -> "Off"
-                            }
-                        )
-                    },
-                    trailingContent = {
-                        Icon(Icons.Filled.ChevronRight, null)
-                    }
-                ) {
-                    Text("Elevation")
-                }
-            }
-            SectionHeader("Interface")
-            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                SettingSwitch(
-                    index = 0,
-                    count = 4,
-                    title = "Open last folder",
-                    subtitle = "Return to the folder you were in when the app starts.",
-                    checked = settings.openLastFolder,
-                    onCheckedChange = { scope.launch { repo.setOpenLastFolder(it) } }
-                )
-                SettingSwitch(
-                    index = 1,
-                    count = 4,
-                    title = "Hide hidden files",
-                    subtitle = "Do not show files and folders whose name starts with a dot.",
-                    checked = settings.hideHidden,
-                    onCheckedChange = { scope.launch { repo.setHideHidden(it) } }
-                )
-                SettingSwitch(
-                    index = 2,
-                    count = 4,
-                    title = "History",
-                    subtitle = "Keep a searchable history of everything you open. When off, only the last few folders are kept.",
-                    checked = settings.historyEnabled,
-                    onCheckedChange = { scope.launch { repo.setHistoryEnabled(it) } }
-                )
-                SettingSwitch(
-                    index = 3,
-                    count = 4,
-                    title = "See devices in UI",
-                    subtitle = "Show connected drives with used space in the navigation bar.",
-                    checked = settings.seeDevicesInUi,
-                    onCheckedChange = { scope.launch { repo.setSeeDevicesInUi(it) } }
-                )
+            ) {
+                Text("Custom color")
             }
         }
     }
+}
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun SettingsFilesScreen(
+    settings: AppSettings,
+    repo: SettingsRepository,
+    onBack: () -> Unit,
+    barLifted: Boolean = false,
+    onToggleBar: () -> Unit = {}
+) {
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    var rarUnlockAt by remember { mutableLongStateOf(0L) }
+    var rarUnlockJob by remember { mutableStateOf<Job?>(null) }
+    val rarInteractions = remember { MutableInteractionSource() }
+    LaunchedEffect(rarInteractions) {
+        rarInteractions.interactions.collect { interaction ->
+            if (interaction is PressInteraction.Release || interaction is PressInteraction.Cancel) {
+                rarUnlockJob?.cancel()
+                rarUnlockJob = null
+            }
+        }
+    }
+    SettingsScaffold("Files", onBack, barLifted, onToggleBar) {
+        SectionHeader("Sorting and view")
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            SegmentedListItem(
+                onClick = {},
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 3),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = { Icon(Icons.Filled.SortByAlpha, null) },
+                supportingContent = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        SortBy.entries.forEachIndexed { index, sort ->
+                            val selected = settings.defaultSort == sort
+                            ToggleButton(
+                                checked = selected,
+                                onCheckedChange = {
+                                    if (!selected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                    scope.launch { repo.setDefaultSort(sort) }
+                                },
+                                shapes = when (index) {
+                                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                    SortBy.entries.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .semantics { role = Role.RadioButton }
+                            ) {
+                                Text(sortLabel(sort), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            ) {
+                Text("Default sort")
+            }
+            SettingSwitch(
+                index = 1,
+                count = 3,
+                title = "Folders first",
+                subtitle = "Always list folders above files, no matter the sort order.",
+                checked = settings.foldersFirst,
+                onCheckedChange = { scope.launch { repo.setFoldersFirst(it) } }
+            )
+            SegmentedListItem(
+                onClick = {},
+                shapes = ListItemDefaults.segmentedShapes(index = 2, count = 3),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = {
+                    Icon(
+                        if (settings.defaultView == "grid") Icons.Filled.ViewModule
+                        else Icons.AutoMirrored.Filled.ViewList,
+                        null
+                    )
+                },
+                supportingContent = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        val listSelected = settings.defaultView != "grid"
+                        ToggleButton(
+                            checked = listSelected,
+                            onCheckedChange = {
+                                if (!listSelected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                scope.launch { repo.setDefaultView("list") }
+                            },
+                            shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { role = Role.RadioButton }
+                        ) {
+                            Text("List", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        ToggleButton(
+                            checked = !listSelected,
+                            onCheckedChange = {
+                                if (listSelected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                scope.launch { repo.setDefaultView("grid") }
+                            },
+                            shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { role = Role.RadioButton }
+                        ) {
+                            Text("Grid", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            ) {
+                Text("Default view")
+            }
+        }
+        SectionHeader("Behaviour")
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            SettingSwitch(
+                index = 0,
+                count = 6,
+                title = "Open last folder",
+                subtitle = "Return to the folder you were in when the app starts.",
+                checked = settings.openLastFolder,
+                onCheckedChange = { scope.launch { repo.setOpenLastFolder(it) } }
+            )
+            SettingSwitch(
+                index = 1,
+                count = 6,
+                title = "Hide hidden files",
+                subtitle = "Do not show files and folders whose name starts with a dot.",
+                checked = settings.hideHidden,
+                onCheckedChange = { scope.launch { repo.setHideHidden(it) } }
+            )
+            SettingSwitch(
+                index = 2,
+                count = 6,
+                title = "Confirm before delete",
+                subtitle = "Ask for confirmation before deleting files and folders.",
+                checked = settings.confirmDelete,
+                onCheckedChange = { scope.launch { repo.setConfirmDelete(it) } }
+            )
+            SettingSwitch(
+                index = 3,
+                count = 6,
+                title = "History",
+                subtitle = "Keep a searchable history of everything you open. When off, only the last few folders are kept.",
+                checked = settings.historyEnabled,
+                onCheckedChange = { scope.launch { repo.setHistoryEnabled(it) } }
+            )
+            SettingSwitch(
+                index = 4,
+                count = 6,
+                title = "See devices in UI",
+                subtitle = "Show connected drives with used space in the navigation bar.",
+                checked = settings.seeDevicesInUi,
+                onCheckedChange = { scope.launch { repo.setSeeDevicesInUi(it) } }
+            )
+            SettingSwitch(
+                index = 5,
+                count = 6,
+                title = "RAR support",
+                subtitle = if (settings.rarWriteEnabled) "Read and write. Packing unlocked."
+                    else "Read-only. Hold this row 5 seconds to unlock RAR packing.",
+                checked = settings.rarEnabled,
+                onCheckedChange = {
+                    if (SystemClock.uptimeMillis() - rarUnlockAt < 1000L) return@SettingSwitch
+                    scope.launch { repo.setRarEnabled(it) }
+                },
+                interactionSource = rarInteractions,
+                onLongClick = {
+                    if (!settings.rarWriteEnabled) {
+                        rarUnlockJob?.cancel()
+                        rarUnlockJob = scope.launch {
+                            delay(5000L)
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            rarUnlockAt = SystemClock.uptimeMillis()
+                            repo.setRarWriteEnabled(true)
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun SettingsSearchScreen(
+    settings: AppSettings,
+    repo: SettingsRepository,
+    onBack: () -> Unit,
+    barLifted: Boolean = false,
+    onToggleBar: () -> Unit = {}
+) {
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    SettingsScaffold("Search", onBack, barLifted, onToggleBar) {
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            SettingSwitch(
+                index = 0,
+                count = 4,
+                title = "Search inside file contents",
+                subtitle = "Plain queries also match text inside files, not only names.",
+                checked = settings.searchInContent,
+                onCheckedChange = { scope.launch { repo.setSearchInContent(it) } }
+            )
+            SettingSwitch(
+                index = 1,
+                count = 4,
+                title = "Search inside archives",
+                subtitle = "Match entry names and entry contents inside zip, 7z, tar and rar archives.",
+                checked = settings.searchInArchives,
+                onCheckedChange = { scope.launch { repo.setSearchInArchives(it) } }
+            )
+            SettingSwitch(
+                index = 2,
+                count = 4,
+                title = "Case-sensitive content search",
+                subtitle = "Match the exact letter case when scanning file and entry contents.",
+                checked = settings.searchCaseSensitive,
+                onCheckedChange = { scope.launch { repo.setSearchCaseSensitive(it) } }
+            )
+            SegmentedListItem(
+                onClick = {},
+                shapes = ListItemDefaults.segmentedShapes(index = 3, count = 4),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                supportingContent = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        scanSizes.forEachIndexed { index, size ->
+                            val selected = settings.searchMaxScanMb == size
+                            ToggleButton(
+                                checked = selected,
+                                onCheckedChange = {
+                                    if (!selected) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                    scope.launch { repo.setSearchMaxScanMb(size) }
+                                },
+                                shapes = when (index) {
+                                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                    scanSizes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .semantics { role = Role.RadioButton }
+                            ) {
+                                Text("$size MB", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            ) {
+                Text("Per-file content scan limit")
+            }
+            Text(
+                "Use content:\"text\" to match file contents and archive:\"name\" to match entries inside archives. Plain words match names, or contents when enabled above.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun SettingsStorageScreen(
+    safAutoFallback: Boolean = true,
+    onSetSafAutoFallback: (Boolean) -> Unit = {},
+    safGrants: Map<String, Uri> = emptyMap(),
+    storageVolumes: List<AppVolume> = emptyList(),
+    forcedSaf: Set<String> = emptySet(),
+    onForgetGrant: (String) -> Unit = {},
+    onSetForceSaf: (String, Boolean) -> Unit = { _, _ -> },
+    onGrantPicked: (Uri, String) -> Unit = { _, _ -> },
+    onBack: () -> Unit,
+    barLifted: Boolean = false,
+    onToggleBar: () -> Unit = {}
+) {
+    SettingsScaffold("Storage", onBack, barLifted, onToggleBar) {
+        StorageSection(
+            safAutoFallback = safAutoFallback,
+            onSetSafAutoFallback = onSetSafAutoFallback,
+            safGrants = safGrants,
+            volumes = storageVolumes,
+            forcedSaf = forcedSaf,
+            onForgetGrant = onForgetGrant,
+            onSetForceSaf = onSetForceSaf,
+            onGrantPicked = onGrantPicked
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun SettingsElevationScreen(
+    settings: AppSettings,
+    repo: SettingsRepository,
+    onBack: () -> Unit,
+    barLifted: Boolean = false,
+    onToggleBar: () -> Unit = {}
+) {
+    val scope = rememberCoroutineScope()
+    val activity = LocalContext.current as? Activity
+    var showElevationDialog by remember { mutableStateOf(false) }
+    val rootStatus by RootEngine.status.collectAsStateWithLifecycle(initialValue = RootStatus.Unknown)
+    val shizukuStatus by ShizukuEngine.status.collectAsStateWithLifecycle(initialValue = ShizukuStatus.NoBinder)
+    SettingsScaffold("Elevation", onBack, barLifted, onToggleBar) {
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            SegmentedListItem(
+                onClick = { showElevationDialog = true },
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = { Icon(Icons.Filled.Security, null) },
+                supportingContent = {
+                    Text(
+                        when (settings.elevationMode) {
+                            "shizuku" -> "Shizuku · ${shizukuStatusLabel(shizukuStatus)}"
+                            "root" -> "Root · ${rootStatusLabel(rootStatus)}"
+                            else -> "Off"
+                        }
+                    )
+                },
+                trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
+            ) {
+                Text("Elevation")
+            }
+        }
+    }
     if (showElevationDialog) {
         AlertDialog(
             onDismissRequest = { showElevationDialog = false },
@@ -656,9 +794,7 @@ fun SettingsScreen(
                     if (settings.elevationMode == "shizuku" && shizukuStatus == ShizukuStatus.PermissionRequired) {
                         TextButton(
                             enabled = activity != null,
-                            onClick = {
-                                activity?.let { ShizukuEngine.requestPermission(it) }
-                            }
+                            onClick = { activity?.let { ShizukuEngine.requestPermission(it) } }
                         ) { Text("Request") }
                     }
                     if (settings.elevationMode == "root") {
@@ -667,6 +803,65 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun SettingsAboutScreen(
+    onBack: () -> Unit,
+    barLifted: Boolean = false,
+    onToggleBar: () -> Unit = {}
+) {
+    val uriHandler = LocalUriHandler.current
+    val links = listOf(
+        "Source code" to "https://github.com/sysrv64/KArchiver",
+        "Releases" to "https://github.com/sysrv64/KArchiver/releases",
+        "Readme" to "https://github.com/sysrv64/KArchiver/blob/main/README.md",
+        "Questions and answers" to "https://github.com/sysrv64/KArchiver/blob/main/QA.md",
+        "Report an issue" to "https://github.com/sysrv64/KArchiver/issues"
+    )
+    SettingsScaffold("About", onBack, barLifted, onToggleBar) {
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            SegmentedListItem(
+                onClick = {},
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 2),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = { Icon(Icons.Filled.Tune, null) },
+                supportingContent = { Text("Android 8.0 or newer") }
+            ) {
+                Text("KArchiver ${BuildConfig.VERSION_NAME}")
+            }
+            SegmentedListItem(
+                onClick = {},
+                shapes = ListItemDefaults.segmentedShapes(index = 1, count = 2),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = { Icon(Icons.Filled.Description, null) },
+                supportingContent = { Text("Application GPL-3.0-only, Rust core Apache-2.0") }
+            ) {
+                Text("License")
+            }
+        }
+        SectionHeader("Links")
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            links.forEachIndexed { index, (label, url) ->
+                SegmentedListItem(
+                    onClick = { uriHandler.openUri(url) },
+                    shapes = ListItemDefaults.segmentedShapes(index = index, count = links.size),
+                    colors = ListItemDefaults.segmentedColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    supportingContent = { Text(url.replace("https://", ""), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    trailingContent = { Icon(Icons.Filled.OpenInNew, null) }
+                ) {
+                    Text(label)
+                }
+            }
+        }
     }
 }
 

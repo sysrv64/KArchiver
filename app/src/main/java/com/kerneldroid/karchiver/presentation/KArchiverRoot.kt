@@ -74,7 +74,14 @@ import com.kerneldroid.karchiver.presentation.components.CustomNavigationDrawerI
 import com.kerneldroid.karchiver.presentation.components.DrawerDestination
 import com.kerneldroid.karchiver.presentation.home.HomeScreen
 import com.kerneldroid.karchiver.presentation.history.HistoryScreen
+import com.kerneldroid.karchiver.presentation.settings.SettingsAboutScreen
+import com.kerneldroid.karchiver.presentation.settings.SettingsAppearanceScreen
+import com.kerneldroid.karchiver.presentation.settings.SettingsCategory
+import com.kerneldroid.karchiver.presentation.settings.SettingsElevationScreen
+import com.kerneldroid.karchiver.presentation.settings.SettingsFilesScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsScreen
+import com.kerneldroid.karchiver.presentation.settings.SettingsSearchScreen
+import com.kerneldroid.karchiver.presentation.settings.SettingsStorageScreen
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -417,10 +424,41 @@ fun KArchiverRoot() {
         composable(RootRoute.SETTINGS) {
             SettingsScreen(
                 settings = settings ?: AppSettings(),
+                onBack = { navController.popBackStack() },
+                onOpen = { category -> navController.navigate(category.route) },
+                barLifted = barLifted,
+                onToggleBar = { barLifted = !barLifted }
+            )
+        }
+        composable(SettingsCategory.APPEARANCE.route) {
+            SettingsAppearanceScreen(
+                settings = settings ?: AppSettings(),
                 repo = settingsRepo,
                 onBack = { navController.popBackStack() },
                 barLifted = barLifted,
-                onToggleBar = { barLifted = !barLifted },
+                onToggleBar = { barLifted = !barLifted }
+            )
+        }
+        composable(SettingsCategory.FILES.route) {
+            SettingsFilesScreen(
+                settings = settings ?: AppSettings(),
+                repo = settingsRepo,
+                onBack = { navController.popBackStack() },
+                barLifted = barLifted,
+                onToggleBar = { barLifted = !barLifted }
+            )
+        }
+        composable(SettingsCategory.SEARCH.route) {
+            SettingsSearchScreen(
+                settings = settings ?: AppSettings(),
+                repo = settingsRepo,
+                onBack = { navController.popBackStack() },
+                barLifted = barLifted,
+                onToggleBar = { barLifted = !barLifted }
+            )
+        }
+        composable(SettingsCategory.STORAGE.route) {
+            SettingsStorageScreen(
                 safAutoFallback = safAutoFallback,
                 onSetSafAutoFallback = { value ->
                     drawerScope.launch {
@@ -435,7 +473,26 @@ fun KArchiverRoot() {
                 onSetForceSaf = vm::setForceSaf,
                 onGrantPicked = { uri, volumeId ->
                     drawerScope.launch { vm.onTreeGranted(uri, volumeId) }
-                }
+                },
+                onBack = { navController.popBackStack() },
+                barLifted = barLifted,
+                onToggleBar = { barLifted = !barLifted }
+            )
+        }
+        composable(SettingsCategory.ELEVATION.route) {
+            SettingsElevationScreen(
+                settings = settings ?: AppSettings(),
+                repo = settingsRepo,
+                onBack = { navController.popBackStack() },
+                barLifted = barLifted,
+                onToggleBar = { barLifted = !barLifted }
+            )
+        }
+        composable(SettingsCategory.ABOUT.route) {
+            SettingsAboutScreen(
+                onBack = { navController.popBackStack() },
+                barLifted = barLifted,
+                onToggleBar = { barLifted = !barLifted }
             )
         }
     }

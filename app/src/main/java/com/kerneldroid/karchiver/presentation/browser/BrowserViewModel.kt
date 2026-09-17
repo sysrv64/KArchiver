@@ -612,10 +612,18 @@ class BrowserViewModel(
 
     fun selectAll() {
         val s = _state.value
-        _state.value = s.copy(
-            selected = s.items.map { it.file.absolutePath }.toSet(),
-            isSelectionMode = true
-        )
+        val all = s.items.map { it.file.absolutePath }.toSet()
+        if (all.isEmpty()) return
+        if (s.selected.containsAll(all)) {
+            clearSelection()
+            return
+        }
+        _state.value = s.copy(selected = all, isSelectionMode = true)
+    }
+
+    fun allSelected(): Boolean {
+        val s = _state.value
+        return s.items.isNotEmpty() && s.selected.containsAll(s.items.map { it.file.absolutePath })
     }
 
     fun clearSelection() {

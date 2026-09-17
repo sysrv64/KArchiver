@@ -16,10 +16,10 @@ No. The app does not request the `INTERNET` permission. There is no analytics, t
 To manage files outside the folders it owns. It is optional: if you deny it, the app falls back to SAF and asks you to grant a storage tree through the system picker, then works inside that tree.
 
 **What are Shizuku and root used for?**
-Restricted paths a normal app cannot touch, for example `/Android/data` and system directories. Both are optional (Settings → Elevation → Off / Shizuku / Root). Shizuku needs the Shizuku app installed and running; root needs a working `su`.
+Restricted paths a normal app cannot touch, for example `/Android/data` and system directories. Both are optional (Settings → Elevation). Shizuku needs the Shizuku app installed and running; root needs a working `su`.
 
 **How do I enable RAR?**
-Settings → File manager → **RAR support**. It is read-only at first. To unlock creating RAR archives, press and hold the same row for 5 seconds until a haptic tick confirms; RAR packing is a deliberate speed bump because of RARLAB's licensing terms.
+Settings → Files → **RAR support**. It is read-only at first. To unlock creating RAR archives, press and hold the same row for 5 seconds until a haptic tick confirms; RAR packing is a deliberate speed bump because of RARLAB's licensing terms.
 
 **Which archives can be edited in place?**
 ZIP, TAR, TAR.GZ, TAR.BZ2, TAR.XZ, TAR.ZST and 7Z support adding, renaming and deleting entries. RAR and single-stream archives (`.gz`, `.bz2`, `.xz`, `.zst`, `.lz4`) are read-only.
@@ -43,7 +43,7 @@ Plain words match names, tokens refine the query, several tokens combine with AN
 Quote values with spaces (`content:"hello world"`). Content and archive searches are configured in Settings → Search: enable content search, archive search, case sensitivity and the per-file scan limit. Such queries walk the current folder tree, show a "Scanned N files" counter, stop after 500 results or 20,000 scanned files, and are cancelled when the query changes; nothing is indexed in the background.
 
 **What does History store, and how do I turn it off?**
-Recent folders and opened files with type filters, kept in a local Room database in the app's private storage. Turn it off in Settings → Interface → **History**; nothing is recorded while it is off and the database can be cleared from the History screen.
+Recent folders and opened files with type filters, kept in a local Room database in the app's private storage. Turn it off in Settings → Files → **History**; nothing is recorded while it is off and the database can be cleared from the History screen.
 
 **Why is there a notification during an operation?**
 Long archive operations run in a foreground service, and Android requires a visible notification for those. It disappears when the operation finishes.

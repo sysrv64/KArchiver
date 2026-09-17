@@ -373,10 +373,15 @@ fun ArchiveExplorerRoute(
         if (selectionMode) {
             SelectionTopBar(
                 count = state.selected.size,
+                allSelected = state.rows.isNotEmpty() && state.rows.all { state.selected.contains(it.path) },
                 onClose = vm::clearSelection,
                 onSelectAll = {
-                    for (row in state.rows) {
-                        if (!state.selected.contains(row.path)) vm.toggleSelect(row.path)
+                    if (state.rows.isNotEmpty() && state.rows.all { state.selected.contains(it.path) }) {
+                        vm.clearSelection()
+                    } else {
+                        for (row in state.rows) {
+                            if (!state.selected.contains(row.path)) vm.toggleSelect(row.path)
+                        }
                     }
                 }
             )
