@@ -315,6 +315,7 @@ fun KArchiverRoot() {
         vm.setRarWriteEnabled(s.rarWriteEnabled)
         vm.setElevationMode(s.elevationMode)
         vm.setSystemBrowsing(s.systemBrowsing)
+        vm.setAutoRefresh(s.autoRefresh)
         vm.setHistoryEnabled(s.historyEnabled)
         vm.setTrashEnabled(s.trashEnabled)
         vm.setSearchSettings(
@@ -493,6 +494,7 @@ fun KArchiverRoot() {
                 vm = vm,
                 confirmDelete = settings?.confirmDelete != false,
                 rarEnabled = settings?.rarEnabled == true,
+                autoRefresh = settings?.autoRefresh == true,
                 barLifted = barLifted,
                 onToggleBar = { barLifted = !barLifted },
                 onOpenDrawer = ::openDrawer,

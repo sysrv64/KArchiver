@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -43,6 +44,7 @@ import com.kerneldroid.karchiver.data.archive.OpOutcome
 import com.kerneldroid.karchiver.data.SortBy
 import com.kerneldroid.karchiver.data.TestReport
 import com.kerneldroid.karchiver.data.storage.AppVolume
+import com.kerneldroid.karchiver.data.watch.DirectoryWatcher
 import com.kerneldroid.karchiver.data.storage.SafBridge
 import com.kerneldroid.karchiver.data.storage.SafGrants
 import com.kerneldroid.karchiver.data.storage.VolumeMonitor
@@ -134,6 +136,11 @@ data class BrowserUiState(
 class BrowserViewModel(
     private val repo: FileSystemRepository = FileSystemRepository()
 ) : ViewModel() {
+
+    companion object {
+        private const val WATCH_DEBOUNCE_MILLIS = 500L
+        private const val WATCH_MAX_WAIT_MILLIS = 1800L
+    }
 
     private val rootDir: File = Environment.getExternalStorageDirectory()
 
@@ -335,6 +342,10 @@ class BrowserViewModel(
     private var historyRepo: HistoryRepository? = null
     private var trashRepo: TrashRepository? = null
     private var historyEnabled = true
+    private var autoRefreshEnabled = false
+    private var watcher: DirectoryWatcher? = null
+    private var watchDebounce: Job? = null
+    private var watchBurstStartedAt = 0L
 
     private val _recents = MutableStateFlow<List<FileItem>>(emptyList())
     val recents: StateFlow<List<FileItem>> = _recents
@@ -561,7 +572,62 @@ class BrowserViewModel(
         refresh()
     }
 
-    fun refresh() {
+    fun setAutoRefresh(value: Boolean) {
+        autoRefreshEnabled = value
+        if (!value) stopWatching()
+    }
+
+    fun startWatching() {
+        if (!autoRefreshEnabled) return
+        val dir = _state.value.currentDir
+        val path = dir.absolutePath
+        if (watcher?.directory == path) return
+        stopWatching()
+        val created = DirectoryWatcher { onWatchedDirectoryChanged() }
+        if (created.watch(dir)) watcher = created
+    }
+
+    fun stopWatching() {
+        watchDebounce?.cancel()
+        watchDebounce = null
+        watchBurstStartedAt = 0L
+        watcher?.stop()
+        watcher = null
+    }
+
+    private fun onWatchedDirectoryChanged() {
+        viewModelScope.launch {
+            val now = SystemClock.uptimeMillis()
+            if (watchBurstStartedAt == 0L) watchBurstStartedAt = now
+            watchDebounce?.cancel()
+            if (now - watchBurstStartedAt >= WATCH_MAX_WAIT_MILLIS) {
+                watchBurstStartedAt = 0L
+                silentRefresh()
+            } else {
+                watchDebounce = launch {
+                    delay(WATCH_DEBOUNCE_MILLIS)
+                    watchBurstStartedAt = 0L
+                    silentRefresh()
+                }
+            }
+        }
+    }
+
+    private fun silentRefresh() {
+        val s = _state.value
+        if (_refreshing.value || s.isLoading) return
+        if (s.searchDeep && s.query.isNotBlank()) return
+        val dir = s.currentDir
+        if (!dir.exists()) {
+            var ancestor = dir.parentFile
+            while (ancestor != null && !ancestor.exists()) ancestor = ancestor.parentFile
+            if (ancestor != null && ancestor.isDirectory) navigateTo(ancestor) else refresh()
+            return
+        }
+        refresh(silent = true)
+    }
+
+    fun refresh(silent: Boolean = false) {
         val s = _state.value
         val token = ++loadToken
         searchJob?.cancel()
@@ -575,12 +641,17 @@ class BrowserViewModel(
         }
         val deep = search.requiresDeepSearch(options)
         _state.value = s.copy(
-            isLoading = true,
+            isLoading = if (silent) s.isLoading else true,
             searchDeep = deep,
             searchScanned = 0,
             searchCapped = false
         )
-        _refreshing.value = true
+        if (!silent) _refreshing.value = true
+        fun selectionFor(list: List<FileItem>): Set<String> = when {
+            silent -> s.selected.filter { path -> list.any { it.file.absolutePath == path } }.toSet()
+            s.isSelectionMode -> s.selected
+            else -> emptySet()
+        }
         val job = viewModelScope.launch {
             if (deep) {
                 val result = withContext(Dispatchers.IO) {
@@ -589,13 +660,15 @@ class BrowserViewModel(
                     }
                 }
                 if (token != loadToken) return@launch
+                val selected = selectionFor(result.items)
                 _state.value = _state.value.copy(
                     items = result.items,
                     isLoading = false,
                     searchDeep = true,
                     searchScanned = result.scanned,
                     searchCapped = result.capped,
-                    selected = if (s.isSelectionMode) s.selected else emptySet()
+                    selected = selected,
+                    isSelectionMode = if (silent) selected.isNotEmpty() else s.isSelectionMode
                 )
             } else {
                 val elevated = elevationEngine()
@@ -612,16 +685,18 @@ class BrowserViewModel(
                     .filter { search.isEmpty || it.matchesSearch(search) }
                     .toList()
                 if (token != loadToken) return@launch
+                val selected = selectionFor(items)
                 _state.value = _state.value.copy(
                     items = items,
                     isLoading = false,
                     searchDeep = false,
                     searchScanned = 0,
                     searchCapped = false,
-                    selected = if (s.isSelectionMode) s.selected else emptySet()
+                    selected = selected,
+                    isSelectionMode = if (silent) selected.isNotEmpty() else s.isSelectionMode
                 )
             }
-            _refreshing.value = false
+            if (!silent) _refreshing.value = false
         }
         searchJob = job
     }
@@ -646,6 +721,8 @@ class BrowserViewModel(
         if (current.absolutePath == currentVolumeRoot().absolutePath) return false
         return current.parentFile != null
     }
+
+    fun showsUpArrow(): Boolean = canBrowseSystem() && canGoUp() && isSystemPath(_state.value.currentDir)
 
     fun setSystemBrowsing(value: Boolean) {
         if (_state.value.systemBrowsing == value) return
@@ -1059,6 +1136,7 @@ class BrowserViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        stopWatching()
         volumeMonitor?.stop()
         volumeMonitor = null
     }

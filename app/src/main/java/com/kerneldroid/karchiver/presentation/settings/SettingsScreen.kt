@@ -537,7 +537,7 @@ fun SettingsFilesScreen(
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SettingSwitch(
                 index = 0,
-                count = 5,
+                count = 6,
                 title = "Open last folder",
                 subtitle = "Return to the folder you were in when the app starts.",
                 checked = settings.openLastFolder,
@@ -545,31 +545,39 @@ fun SettingsFilesScreen(
             )
             SettingSwitch(
                 index = 1,
-                count = 5,
+                count = 6,
+                title = "Auto-refresh folder",
+                subtitle = "Watch the open folder and load new or changed files automatically, without pull-to-refresh. Works in folders the app can read directly. Off by default.",
+                checked = settings.autoRefresh,
+                onCheckedChange = { scope.launch { repo.setAutoRefresh(it) } }
+            )
+            SettingSwitch(
+                index = 2,
+                count = 6,
                 title = "Hide hidden files",
                 subtitle = "Do not show files and folders whose name starts with a dot.",
                 checked = settings.hideHidden,
                 onCheckedChange = { scope.launch { repo.setHideHidden(it) } }
             )
             SettingSwitch(
-                index = 2,
-                count = 5,
+                index = 3,
+                count = 6,
                 title = "Confirm before delete",
                 subtitle = "Ask for confirmation before deleting files and folders.",
                 checked = settings.confirmDelete,
                 onCheckedChange = { scope.launch { repo.setConfirmDelete(it) } }
             )
             SettingSwitch(
-                index = 3,
-                count = 5,
+                index = 4,
+                count = 6,
                 title = "See devices in UI",
                 subtitle = "Show connected drives with used space in the navigation bar.",
                 checked = settings.seeDevicesInUi,
                 onCheckedChange = { scope.launch { repo.setSeeDevicesInUi(it) } }
             )
             SettingSwitch(
-                index = 4,
-                count = 5,
+                index = 5,
+                count = 6,
                 title = "RAR support",
                 subtitle = if (settings.rarWriteEnabled) "Read and write. Packing unlocked."
                     else "Read-only. Hold this row 5 seconds to unlock RAR packing.",

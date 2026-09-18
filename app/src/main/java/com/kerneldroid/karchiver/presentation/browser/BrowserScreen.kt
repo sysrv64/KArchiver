@@ -63,6 +63,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kerneldroid.karchiver.data.CompressFormat
 import com.kerneldroid.karchiver.data.ConflictPolicy
@@ -100,6 +101,7 @@ fun BrowserScreen(
     vm: BrowserViewModel,
     confirmDelete: Boolean = true,
     rarEnabled: Boolean = false,
+    autoRefresh: Boolean = false,
     barLifted: Boolean,
     onToggleBar: () -> Unit,
     onOpenDrawer: () -> Unit,
@@ -146,6 +148,11 @@ fun BrowserScreen(
             treePicker.launch(null)
         }
         vm.dismissGrantRequest()
+    }
+
+    LifecycleResumeEffect(autoRefresh, state.currentDir) {
+        if (autoRefresh) vm.startWatching()
+        onPauseOrDispose { vm.stopWatching() }
     }
 
     var searchActive by rememberSaveable { mutableStateOf(false) }
@@ -340,7 +347,7 @@ fun BrowserScreen(
                     BrowserTopBar(
                         current = state.currentDir,
                         itemCount = state.items.size,
-                        canGoUp = vm.canGoUp(),
+                        canGoUp = vm.showsUpArrow(),
                         onNavigateUp = { vm.navigateUp() },
                         onOpenDrawer = onOpenDrawer,
                         onOpenVolumes = { showVolumePicker = true },

@@ -18,7 +18,8 @@ Android file manager built around archives: browse storage, open archives withou
 - File properties: permissions, rename, and modified date with a Material 3 date picker.
 - Optional Trash: deleted files are moved aside instead of erased, with restore, delete forever and empty Trash from the drawer.
 - Optional Shizuku or root engine for restricted paths, SAF fallback when All files access is denied.
-- Optional system browsing (off by default): go above internal storage into `/`, `/data`, `/data/data`, `/vendor`, `/system` and other users' storage. Root is required for `/data` and app data.
+- Optional system browsing (off by default): a `..` parent entry at the top of the list lets you climb above internal storage into `/`, `/data`, `/data/data`, `/vendor`, `/system` and other users' storage. Root is required for `/data` and app data.
+- Optional auto-refresh (off by default): watches the open folder and loads new, changed or deleted files automatically, without pull-to-refresh. Works in folders the app can read directly.
 - Optional history of visited folders and files in a local Room database.
 
 ## Formats
