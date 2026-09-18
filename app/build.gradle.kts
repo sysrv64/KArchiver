@@ -42,7 +42,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
         vectorDrawables {
             useSupportLibrary = true
@@ -133,9 +133,7 @@ tasks.register<Exec>("cargoBuild") {
     workingDir = file("../rust")
     commandLine(
         "cargo", "ndk",
-        "-t", "armeabi-v7a",
         "-t", "arm64-v8a",
-        "-t", "x86",
         "-t", "x86_64",
         "--platform", "26",
         "-o", "../app/src/main/jniLibs",
