@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
@@ -36,6 +34,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenuGroup
@@ -65,7 +64,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -121,6 +119,7 @@ private object RootRoute {
 private val DrawerSheetWidth = 280.dp
 private val DeviceUsageBarWidth = 168.dp
 private val DrawerTabHeight = 56.dp
+private val RestoreHoldHeight = 56.dp
 private val DrawerTabSpacing = 4.dp
 
 private enum class DrawerTab(
@@ -140,6 +139,15 @@ private enum class DrawerTab(
     companion object {
         fun fromId(id: String): DrawerTab? = entries.firstOrNull { it.id == id }
     }
+}
+
+private fun systemLocations(users: List<Int>): List<Triple<String, File, ImageVector>> = buildList {
+    add(Triple("System root", File("/"), Icons.Filled.Storage))
+    add(Triple("App data", File("/data/data"), Icons.Filled.Folder))
+    add(Triple("System partition", File("/system"), Icons.Filled.Folder))
+    add(Triple("Vendor", File("/vendor"), Icons.Filled.Folder))
+    add(Triple("Temp", File("/data/local/tmp"), Icons.Filled.Folder))
+    users.forEach { id -> add(Triple("User $id storage", File("/data/media/$id"), Icons.Filled.Smartphone)) }
 }
 
 private fun normalizeDrawerTabs(order: List<String>): List<DrawerTab> {
@@ -234,6 +242,7 @@ fun KArchiverRoot() {
     val forcedSaf by vm.forcedSaf.collectAsStateWithLifecycle()
     val safAutoFallback by vm.safAutoFallback.collectAsStateWithLifecycle()
     val favorites by settingsRepo.favorites.collectAsStateWithLifecycle(initialValue = emptySet())
+    val androidUsers by vm.androidUsers.collectAsStateWithLifecycle()
 
     val drawerOrder = settings?.drawerTabs ?: DEFAULT_DRAWER_TABS
     val storedTabs = remember(drawerOrder) { normalizeDrawerTabs(drawerOrder) }
@@ -396,7 +405,7 @@ fun KArchiverRoot() {
                             }
                         )
                     }
-                    AddTabsRow(
+                    RestoreHoldArea(
                         shown = drawerTabs,
                         expanded = emptyMenu,
                         onExpandedChange = { emptyMenu = it },
@@ -453,6 +462,32 @@ fun KArchiverRoot() {
                                     vm.switchVolume(v)
                                     selectDestination(RootRoute.BROWSER)
                                 }
+                            )
+                        }
+                    }
+                    if (settings?.systemBrowsing == true) {
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 28.dp, vertical = 4.dp))
+                        DrawerSectionLabel("System")
+                        if (vm.canBrowseSystem()) {
+                            systemLocations(androidUsers).forEach { (label, path, icon) ->
+                                CustomNavigationDrawerItem(
+                                    selected = currentRoute == RootRoute.BROWSER &&
+                                        browserState.currentDir.absolutePath == path.absolutePath,
+                                    onSelected = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                        vm.navigateTo(path)
+                                        selectDestination(RootRoute.BROWSER)
+                                    },
+                                    icon = icon,
+                                    text = label
+                                )
+                            }
+                        } else {
+                            Text(
+                                "Turn on Root or Shizuku in Settings → Elevation.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 4.dp, bottom = 8.dp)
                             )
                         }
                     }
@@ -726,7 +761,7 @@ private fun DrawerTabRow(
 }
 
 @Composable
-private fun AddTabsRow(
+private fun RestoreHoldArea(
     shown: List<DrawerTab>,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
@@ -738,35 +773,9 @@ private fun AddTabsRow(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp)
+            .height(RestoreHoldHeight)
+            .holdToReveal { onExpandedChange(true) }
     ) {
-        Surface(
-            onClick = { onExpandedChange(true) },
-            shape = RoundedCornerShape(30.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .holdToReveal { onExpandedChange(true) }
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(
-                    Icons.Filled.Add,
-                    null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    "Add tab",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
         DropdownMenuPopup(
             expanded = expanded,
             onDismissRequest = { onExpandedChange(false) }

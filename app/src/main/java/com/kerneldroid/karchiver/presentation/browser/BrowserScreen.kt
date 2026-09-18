@@ -525,15 +525,10 @@ fun BrowserScreen(
     }
 
     if (showVolumePicker) {
-        val androidUsers by vm.androidUsers.collectAsStateWithLifecycle()
         VolumePickerDialog(
             current = state.currentDir,
             volumes = volumes,
-            systemBrowsing = vm.canBrowseSystem(),
-            systemBrowsingWanted = state.systemBrowsing,
-            androidUsers = androidUsers,
             onPick = { vm.switchVolume(it); showVolumePicker = false },
-            onPickPath = { vm.navigateTo(it); showVolumePicker = false },
             onDismiss = { showVolumePicker = false }
         )
     }
@@ -1074,17 +1069,13 @@ private fun CreateFabMenu(
 private fun VolumePickerDialog(
     current: File,
     volumes: List<AppVolume>,
-    systemBrowsing: Boolean,
-    systemBrowsingWanted: Boolean,
-    androidUsers: List<Int>,
     onPick: (AppVolume) -> Unit,
-    onPickPath: (File) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Filled.Storage, null) },
-        title = { Text("Locations") },
+        title = { Text("Storage volumes") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (volumes.isEmpty()) {
@@ -1096,38 +1087,6 @@ private fun VolumePickerDialog(
                 }
                 volumes.forEach { volume ->
                     VolumeRow(volume = volume, current = current, onPick = { onPick(volume) })
-                }
-                if (systemBrowsingWanted && !systemBrowsing) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                    Text(
-                        "Turn on Root or Shizuku in Settings \u2192 Elevation to browse system paths.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (systemBrowsing) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                    Text(
-                        "System",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    val entries = buildList {
-                        add("System root" to File("/"))
-                        add("App data" to File("/data/data"))
-                        add("System partition" to File("/system"))
-                        add("Vendor" to File("/vendor"))
-                        add("Temp" to File("/data/local/tmp"))
-                        androidUsers.forEach { id -> add("User $id storage" to File("/data/media/$id")) }
-                    }
-                    entries.forEach { (label, path) ->
-                        PathRow(
-                            label = label,
-                            path = path,
-                            current = current,
-                            onPick = onPickPath
-                        )
-                    }
                 }
             }
         },
@@ -1168,34 +1127,6 @@ private fun VolumeRow(
             .combinedClickable(onClick = onPick)
     ) {
         Text(volume.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun PathRow(
-    label: String,
-    path: File,
-    current: File,
-    onPick: (File) -> Unit
-) {
-    val selected = current.absolutePath == path.absolutePath
-    ListItem(
-        supportingContent = {
-            Text(path.absolutePath, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        },
-        leadingContent = { Icon(Icons.Filled.Folder, null) },
-        trailingContent = {
-            if (selected) Icon(Icons.Filled.Check, null)
-        },
-        colors = ListItemDefaults.colors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
-            else Color.Transparent
-        ),
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .combinedClickable(onClick = { onPick(path) })
-    ) {
-        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
