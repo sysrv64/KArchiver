@@ -59,20 +59,6 @@ class FileSystemRepositoryElevatedTest {
         assertEquals(listOf("local.txt"), items.map { it.name })
     }
 
-    @Test
-    fun androidUsersComeFromMediaDirectory() {
-        val engine = FakeElevated(
-            mapOf(
-                "/data/media" to listOf(
-                    ElevatedEntry(File("/data/media/0"), true, 0L, 0L, 0),
-                    ElevatedEntry(File("/data/media/10"), true, 0L, 0L, 0),
-                    ElevatedEntry(File("/data/media/obb"), true, 0L, 0L, 0)
-                )
-            )
-        )
-        val users = runBlocking { FileSystemRepository().listAndroidUsers(engine) }
-        assertEquals(listOf(0, 10), users)
-    }
 
     @Test
     fun stageForOpenCopiesReadableFile() {

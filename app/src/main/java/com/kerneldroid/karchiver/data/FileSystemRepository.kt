@@ -338,19 +338,6 @@ class FileSystemRepository {
         }.getOrDefault(emptySet())
     }
 
-    suspend fun listAndroidUsers(elevated: ElevatedFS? = null): List<Int> = withContext(Dispatchers.IO) {
-        if (elevated == null) return@withContext emptyList()
-        runCatching {
-            listDir(
-                File("/data/media"),
-                SortBy.NAME,
-                ascending = true,
-                foldersFirst = false,
-                elevated = elevated,
-                elevatedFirst = true
-            ).mapNotNull { it.name.toIntOrNull() }.distinct().sorted()
-        }.getOrDefault(emptyList())
-    }
 
     suspend fun stageForOpen(file: File, elevated: ElevatedFS? = null): Result<File> = withContext(Dispatchers.IO) {
         runCatching {

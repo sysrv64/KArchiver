@@ -410,20 +410,27 @@ fun BrowserScreen(
                     indicator = {}
                 ) {
                     Box(Modifier.fillMaxSize()) {
+                        val upAction: (() -> Unit)? = if (vm.canGoUp()) {
+                            { vm.navigateUp() }
+                        } else {
+                            null
+                        }
                         when {
                             state.isLoading && state.items.isEmpty() -> CenterLoading()
-                            state.items.isEmpty() -> EmptyState(query = state.query)
+                            state.items.isEmpty() && upAction == null -> EmptyState(query = state.query)
                             state.viewMode == ViewMode.LIST -> FileList(
                                 state = state,
                                 listState = listState,
                                 onItemClick = handleItemClick,
-                                onItemLongClick = handleItemLongClick
+                                onItemLongClick = handleItemLongClick,
+                                onNavigateUp = upAction
                             )
                             else -> FileGrid(
                                 state = state,
                                 gridState = gridState,
                                 onItemClick = handleItemClick,
-                                onItemLongClick = handleItemLongClick
+                                onItemLongClick = handleItemLongClick,
+                                onNavigateUp = upAction
                             )
                         }
                     }
@@ -1286,20 +1293,32 @@ internal fun FileList(
     state: BrowserUiState,
     listState: LazyListState,
     onItemClick: (FileItem) -> Unit,
-    onItemLongClick: (FileItem) -> Unit
+    onItemLongClick: (FileItem) -> Unit,
+    onNavigateUp: (() -> Unit)? = null
 ) {
+    val extra = if (onNavigateUp != null) 1 else 0
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
     ) {
+        if (onNavigateUp != null) {
+            item(key = "parent-folder") {
+                ParentFolderRow(
+                    index = 0,
+                    count = state.items.size + 1,
+                    onClick = onNavigateUp,
+                    modifier = Modifier.animateItem()
+                )
+            }
+        }
         items(state.items.size, key = { state.items[it].file.absolutePath }) { index ->
             val item = state.items[index]
             FileRow(
                 item = item,
-                index = index,
-                count = state.items.size,
+                index = index + extra,
+                count = state.items.size + extra,
                 selected = state.selected.contains(item.file.absolutePath),
                 favorite = state.favorites.contains(item.file.absolutePath),
                 onClick = { onItemClick(item) },
@@ -1316,7 +1335,8 @@ internal fun FileGrid(
     state: BrowserUiState,
     gridState: LazyGridState,
     onItemClick: (FileItem) -> Unit,
-    onItemLongClick: (FileItem) -> Unit
+    onItemLongClick: (FileItem) -> Unit,
+    onNavigateUp: (() -> Unit)? = null
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 104.dp),
@@ -1326,6 +1346,11 @@ internal fun FileGrid(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        if (onNavigateUp != null) {
+            item(key = "parent-folder") {
+                ParentFolderCard(onClick = onNavigateUp, modifier = Modifier.animateItem())
+            }
+        }
         items(state.items, key = { it.file.absolutePath }) { item ->
             FileGridCard(
                 item = item,
@@ -1337,6 +1362,108 @@ internal fun FileGrid(
             )
         }
         item { Spacer(Modifier.height(16.dp)) }
+    }
+}
+
+@Composable
+private fun ParentFolderRow(
+    index: Int,
+    count: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    SegmentedListItem(
+        onClick = onClick,
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        colors = ListItemDefaults.segmentedColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        modifier = modifier,
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.ArrowUpward,
+                    null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        supportingContent = {
+            Text(
+                "Parent folder",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        trailingContent = {
+            Icon(
+                Icons.Filled.ChevronRight,
+                null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    ) {
+        Text(
+            "..",
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun ParentFolderCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = shape,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .combinedClickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.ArrowUpward,
+                    null,
+                    modifier = Modifier.size(26.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text("..", style = MaterialTheme.typography.labelMedium)
+            Text(
+                "Parent folder",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
     }
 }
 

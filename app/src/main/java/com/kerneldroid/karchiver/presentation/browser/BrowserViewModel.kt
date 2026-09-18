@@ -351,20 +351,6 @@ class BrowserViewModel(
     private var recentsJob: Job? = null
     private var recentsLoaded = false
 
-    private val _androidUsers = MutableStateFlow<List<Int>>(emptyList())
-    val androidUsers: StateFlow<List<Int>> = _androidUsers
-
-    fun loadAndroidUsers() {
-        val engine = elevationEngine()
-        if (engine == null || !canBrowseSystem()) {
-            _androidUsers.value = emptyList()
-            return
-        }
-        viewModelScope.launch {
-            _androidUsers.value = repo.listAndroidUsers(engine)
-        }
-    }
-
     private val _safGrants = MutableStateFlow<Map<String, Uri>>(emptyMap())
     val safGrants: StateFlow<Map<String, Uri>> = _safGrants
 
@@ -438,7 +424,6 @@ class BrowserViewModel(
             }
         }
         refresh()
-        loadAndroidUsers()
     }
 
     fun refreshVolumes() {
@@ -544,7 +529,6 @@ class BrowserViewModel(
     fun setElevationMode(value: String) {
         if (_state.value.elevationMode == value) return
         _state.value = _state.value.copy(elevationMode = value)
-        loadAndroidUsers()
         refresh()
     }
 
@@ -666,7 +650,6 @@ class BrowserViewModel(
     fun setSystemBrowsing(value: Boolean) {
         if (_state.value.systemBrowsing == value) return
         _state.value = _state.value.copy(systemBrowsing = value)
-        if (value) loadAndroidUsers() else _androidUsers.value = emptyList()
         refresh()
     }
 

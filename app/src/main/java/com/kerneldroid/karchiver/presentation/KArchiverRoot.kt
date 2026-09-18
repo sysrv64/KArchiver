@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenuGroup
@@ -141,14 +140,6 @@ private enum class DrawerTab(
     }
 }
 
-private fun systemLocations(users: List<Int>): List<Triple<String, File, ImageVector>> = buildList {
-    add(Triple("System root", File("/"), Icons.Filled.Storage))
-    add(Triple("App data", File("/data/data"), Icons.Filled.Folder))
-    add(Triple("System partition", File("/system"), Icons.Filled.Folder))
-    add(Triple("Vendor", File("/vendor"), Icons.Filled.Folder))
-    add(Triple("Temp", File("/data/local/tmp"), Icons.Filled.Folder))
-    users.forEach { id -> add(Triple("User $id storage", File("/data/media/$id"), Icons.Filled.Smartphone)) }
-}
 
 private fun normalizeDrawerTabs(order: List<String>): List<DrawerTab> {
     val parsed = order.mapNotNull { DrawerTab.fromId(it) }.toMutableList()
@@ -242,7 +233,6 @@ fun KArchiverRoot() {
     val forcedSaf by vm.forcedSaf.collectAsStateWithLifecycle()
     val safAutoFallback by vm.safAutoFallback.collectAsStateWithLifecycle()
     val favorites by settingsRepo.favorites.collectAsStateWithLifecycle(initialValue = emptySet())
-    val androidUsers by vm.androidUsers.collectAsStateWithLifecycle()
 
     val drawerOrder = settings?.drawerTabs ?: DEFAULT_DRAWER_TABS
     val storedTabs = remember(drawerOrder) { normalizeDrawerTabs(drawerOrder) }
@@ -462,32 +452,6 @@ fun KArchiverRoot() {
                                     vm.switchVolume(v)
                                     selectDestination(RootRoute.BROWSER)
                                 }
-                            )
-                        }
-                    }
-                    if (settings?.systemBrowsing == true) {
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 28.dp, vertical = 4.dp))
-                        DrawerSectionLabel("System")
-                        if (vm.canBrowseSystem()) {
-                            systemLocations(androidUsers).forEach { (label, path, icon) ->
-                                CustomNavigationDrawerItem(
-                                    selected = currentRoute == RootRoute.BROWSER &&
-                                        browserState.currentDir.absolutePath == path.absolutePath,
-                                    onSelected = {
-                                        haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                        vm.navigateTo(path)
-                                        selectDestination(RootRoute.BROWSER)
-                                    },
-                                    icon = icon,
-                                    text = label
-                                )
-                            }
-                        } else {
-                            Text(
-                                "Turn on Root or Shizuku in Settings → Elevation.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 4.dp, bottom = 8.dp)
                             )
                         }
                     }
