@@ -15,6 +15,30 @@ private val Context.dataStore by preferencesDataStore(name = "karchiver_settings
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK, OLED }
 
+const val DRAWER_TAB_TRASH = "trash"
+
+val DEFAULT_DRAWER_TABS = listOf("files", "home", "recents", "settings")
+
+internal fun insertDrawerTab(current: List<String>, id: String): List<String> {
+    val settingsIndex = current.indexOf("settings")
+    val updated = current.toMutableList()
+    if (settingsIndex >= 0) updated.add(settingsIndex, id) else updated.add(id)
+    return updated
+}
+
+internal fun syncTrashTab(current: List<String>, enabled: Boolean): List<String> = when {
+    enabled && current.contains(DRAWER_TAB_TRASH) -> current
+    enabled -> insertDrawerTab(current, DRAWER_TAB_TRASH)
+    else -> current.filter { it != DRAWER_TAB_TRASH }
+}
+
+internal fun parseDrawerTabs(raw: String?): List<String> = raw
+    ?.split('\n')
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    ?.distinct()
+    ?: emptyList()
+
 data class AppSettings(
     val openLastFolder: Boolean = true,
     val hideHidden: Boolean = false,
@@ -33,6 +57,7 @@ data class AppSettings(
     val safAutoFallback: Boolean = true,
     val seeDevicesInUi: Boolean = false,
     val historyEnabled: Boolean = true,
+    val drawerTabs: List<String> = DEFAULT_DRAWER_TABS,
     val searchInContent: Boolean = false,
     val searchInArchives: Boolean = true,
     val searchCaseSensitive: Boolean = false,
@@ -64,6 +89,7 @@ class SettingsRepository(private val appContext: Context) {
         val SAF_AUTO_FALLBACK = booleanPreferencesKey("saf_auto_fallback")
         val SEE_DEVICES_IN_UI = booleanPreferencesKey("see_devices_in_ui")
         val HISTORY_ENABLED = booleanPreferencesKey("history_enabled")
+        val DRAWER_TABS = stringPreferencesKey("drawer_tabs")
         val SEARCH_IN_CONTENT = booleanPreferencesKey("search_in_content")
         val SEARCH_IN_ARCHIVES = booleanPreferencesKey("search_in_archives")
         val SEARCH_CASE_SENSITIVE = booleanPreferencesKey("search_case_sensitive")
@@ -129,6 +155,7 @@ class SettingsRepository(private val appContext: Context) {
             safAutoFallback = p[Keys.SAF_AUTO_FALLBACK] ?: true,
             seeDevicesInUi = p[Keys.SEE_DEVICES_IN_UI] ?: false,
             historyEnabled = p[Keys.HISTORY_ENABLED] ?: true,
+            drawerTabs = parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty { DEFAULT_DRAWER_TABS },
             searchInContent = p[Keys.SEARCH_IN_CONTENT] ?: false,
             searchInArchives = p[Keys.SEARCH_IN_ARCHIVES] ?: true,
             searchCaseSensitive = p[Keys.SEARCH_CASE_SENSITIVE] ?: false,
@@ -172,7 +199,27 @@ class SettingsRepository(private val appContext: Context) {
         appContext.dataStore.edit { it[Keys.CONFIRM_DELETE] = value }
 
     suspend fun setTrashEnabled(value: Boolean) =
-        appContext.dataStore.edit { it[Keys.TRASH_ENABLED] = value }
+        appContext.dataStore.edit { p ->
+            p[Keys.TRASH_ENABLED] = value
+            p[Keys.DRAWER_TABS] = syncTrashTab(parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty { DEFAULT_DRAWER_TABS }, value).joinToString("\n")
+        }
+
+    suspend fun setDrawerTabs(ids: List<String>) = appContext.dataStore.edit { p ->
+        p[Keys.DRAWER_TABS] = ids.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")
+    }
+
+    suspend fun removeDrawerTab(id: String) = appContext.dataStore.edit { p ->
+        val current = parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty { DEFAULT_DRAWER_TABS }
+        p[Keys.DRAWER_TABS] = current.filter { it != id }.joinToString("\n")
+        if (id == DRAWER_TAB_TRASH) p[Keys.TRASH_ENABLED] = false
+    }
+
+    suspend fun restoreDrawerTab(id: String) = appContext.dataStore.edit { p ->
+        val current = parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty { DEFAULT_DRAWER_TABS }
+        if (current.contains(id)) return@edit
+        p[Keys.DRAWER_TABS] = insertDrawerTab(current, id).joinToString("\n")
+        if (id == DRAWER_TAB_TRASH) p[Keys.TRASH_ENABLED] = true
+    }
 
     suspend fun setRarEnabled(value: Boolean) =
         appContext.dataStore.edit {
@@ -209,4 +256,5 @@ class SettingsRepository(private val appContext: Context) {
 
     suspend fun setSearchMaxScanMb(value: Int) =
         appContext.dataStore.edit { it[Keys.SEARCH_MAX_SCAN_MB] = value }
+
 }

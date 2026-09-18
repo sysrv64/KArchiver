@@ -48,6 +48,12 @@ Recent folders and opened files with type filters, kept in a local Room database
 **What does Trash do, and where do my files go?**
 It is off by default; enable Settings → Files → **Trash**. While it is on, deleting files in the browser moves them into a hidden `.karchiver-trash` folder on the same storage volume (or into the app's private storage when the location is outside a known volume) instead of erasing them, and a **Trash** tab appears in the navigation drawer. There you can restore an item to its original path, delete it forever, or empty the whole Trash. Moving to Trash needs direct access to the location (All files access, or an elevated engine); if the move fails the file is left untouched and an error is shown. Deleting entries inside an archive is always permanent.
 
+**How do I reorder, remove or restore the tabs in the navigation drawer?**
+Hold a tab and drag it to move it; hold it still for about three seconds to open a small menu that removes it. Hold the empty strip under the tabs to open a menu that adds a removed tab back. Files and Settings cannot be removed. Removing the Trash tab switches Trash off and adding it back switches it on, the same switch as in Settings → Files. The whole drawer scrolls when favorites or devices make it longer than the screen.
+
+**What is the Recents tab?**
+One list of the most recently changed files and folders from every mounted volume, newest first. It scans in the background with a folder budget and a time budget, shows progress while it runs, and stops early on very large storages. Tap a folder to open it in Files; tap a file to open it. Pull the refresh button in the top bar to scan again.
+
 **Why is there a notification during an operation?**
 Long archive operations run in a foreground service, and Android requires a visible notification for those. It disappears when the operation finishes.
 

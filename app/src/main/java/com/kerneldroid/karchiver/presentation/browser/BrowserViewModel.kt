@@ -33,6 +33,7 @@ import com.kerneldroid.karchiver.data.search.SearchOptions
 import com.kerneldroid.karchiver.data.search.matchesSearch
 import com.kerneldroid.karchiver.data.search.parseSearchQuery
 import com.kerneldroid.karchiver.data.search.requiresDeepSearch
+import com.kerneldroid.karchiver.data.search.scanRecents
 import com.kerneldroid.karchiver.data.RustBridge
 import com.kerneldroid.karchiver.data.SettingsRepository
 import com.kerneldroid.karchiver.data.archive.ActiveOp
@@ -334,6 +335,21 @@ class BrowserViewModel(
     private var trashRepo: TrashRepository? = null
     private var historyEnabled = true
 
+    private val _recents = MutableStateFlow<List<FileItem>>(emptyList())
+    val recents: StateFlow<List<FileItem>> = _recents
+
+    private val _recentsScanning = MutableStateFlow(false)
+    val recentsScanning: StateFlow<Boolean> = _recentsScanning
+
+    private val _recentsScanned = MutableStateFlow(0)
+    val recentsScanned: StateFlow<Int> = _recentsScanned
+
+    private val _recentsCapped = MutableStateFlow(false)
+    val recentsCapped: StateFlow<Boolean> = _recentsCapped
+
+    private var recentsJob: Job? = null
+    private var recentsLoaded = false
+
     private val _safGrants = MutableStateFlow<Map<String, Uri>>(emptyMap())
     val safGrants: StateFlow<Map<String, Uri>> = _safGrants
 
@@ -414,6 +430,46 @@ class BrowserViewModel(
             repo.safVolumes = volumes.value
         }
     }
+
+    fun loadRecents(force: Boolean = false) {
+        if (recentsLoaded && !force && _recents.value.isNotEmpty()) return
+        val ctx = appCtx ?: return
+        recentsJob?.cancel()
+        recentsJob = viewModelScope.launch {
+            val roots = volumes.value
+                .ifEmpty { runCatching { loadAppVolumes(ctx) }.getOrDefault(emptyList()) }
+                .map { it.root }
+                .ifEmpty { listOf(rootDir) }
+            _recentsScanning.value = true
+            _recentsScanned.value = 0
+            _recentsCapped.value = false
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    scanRecents(
+                        roots = roots,
+                        listDir = { dir ->
+                            repo.listDir(
+                                dir,
+                                SortBy.DATE,
+                                ascending = false,
+                                foldersFirst = false,
+                                elevated = elevationEngine()
+                            )
+                        },
+                        onProgress = { _recentsScanned.value = it },
+                        onBatch = { items -> _recents.value = items }
+                    )
+                }
+                _recents.value = result.items
+                _recentsCapped.value = result.capped
+                recentsLoaded = true
+            } finally {
+                _recentsScanning.value = false
+            }
+        }
+    }
+
+    fun refreshRecents() = loadRecents(force = true)
 
     fun currentVolumeRoot(): File {
         return deepestVolumeFor(_state.value.currentDir, volumes.value)?.root ?: rootDir

@@ -9,6 +9,8 @@ Android file manager built around archives: browse storage, open archives withou
 ## Features
 
 - Storage browser: volumes (internal / SD / USB), list and grid, sorting, hidden files, multi-select, copy / cut / paste, favorites, storage usage carousel.
+- Customizable navigation drawer: hold and drag a tab to reorder it, hold a tab to remove it, hold the empty area under the tabs to add a tab back.
+- Recents: the newest files and folders from every storage volume in one list.
 - Archive explorer: browse ZIP, 7Z, TAR family and RAR without extracting; in-place add, rename and delete for ZIP, TAR family and 7Z.
 - Copy and extract with conflict handling: replace, skip, or keep both (`name (1).ext`).
 - Long operations run in a foreground service with progress, speed, ETA, cancel and a stall watchdog.

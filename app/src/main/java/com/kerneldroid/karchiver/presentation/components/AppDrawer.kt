@@ -18,12 +18,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-data class DrawerDestination(
-    val route: String,
-    val label: String,
-    val icon: ImageVector
-)
-
 @Composable
 fun CustomNavigationDrawerItem(
     selected: Boolean,
