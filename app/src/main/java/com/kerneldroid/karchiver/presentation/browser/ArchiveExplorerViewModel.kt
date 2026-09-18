@@ -15,7 +15,9 @@ data class ExplorerRow(
     val path: String,
     val displayName: String,
     val isDir: Boolean,
-    val size: Long
+    val size: Long,
+    val modified: Long = 0L,
+    val mode: Int = 0
 )
 
 data class ExplorerUiState(
@@ -128,6 +130,44 @@ class ArchiveExplorerViewModel(
         )
     }
 
+    suspend fun setEntryModified(path: String, millis: Long): Boolean {
+        if (path.isEmpty() || millis <= 0L) {
+            _state.value = _state.value.copy(error = "Invalid date")
+            return false
+        }
+        _state.value = _state.value.copy(isLoading = true, error = null)
+        val result = repo.setArchiveEntryMeta(archive, path, millis, -1, password.ifEmpty { null })
+        return result.fold(
+            onSuccess = {
+                doLoad()
+                true
+            },
+            onFailure = { e ->
+                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Could not update archive")
+                false
+            }
+        )
+    }
+
+    suspend fun setEntryMode(path: String, mode: Int): Boolean {
+        if (path.isEmpty() || mode < 0) {
+            _state.value = _state.value.copy(error = "Invalid permissions")
+            return false
+        }
+        _state.value = _state.value.copy(isLoading = true, error = null)
+        val result = repo.setArchiveEntryMeta(archive, path, -1L, mode, password.ifEmpty { null })
+        return result.fold(
+            onSuccess = {
+                doLoad()
+                true
+            },
+            onFailure = { e ->
+                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Could not update archive")
+                false
+            }
+        )
+    }
+
     suspend fun addFiles(sources: List<File>) {
         if (sources.isEmpty()) return
         _state.value = _state.value.copy(isLoading = true, error = null)
@@ -202,6 +242,7 @@ class ArchiveExplorerViewModel(
         val sizes = HashMap<String, Long>()
         val dirFlags = HashSet<String>()
         val names = HashMap<String, String>()
+        val meta = HashMap<String, Pair<Long, Int>>()
         for (entry in listing.entries) {
             val raw = entry.name.trim().trimStart('/')
             if (raw.isEmpty()) continue
@@ -219,6 +260,7 @@ class ArchiveExplorerViewModel(
             val first = parts[0]
             val childPath = prefix + first
             names[childPath] = first
+            meta[clean] = entry.modified to entry.mode
             if (parts.size > 1) {
                 dirFlags.add(childPath)
                 if (!isDirEntry) {
@@ -241,7 +283,15 @@ class ArchiveExplorerViewModel(
         }
         return names.map { (path, display) ->
             val isDir = dirFlags.contains(path)
-            ExplorerRow(path = path, displayName = display, isDir = isDir, size = sizes[path] ?: 0L)
+            val entryMeta = meta[path]
+            ExplorerRow(
+                path = path,
+                displayName = display,
+                isDir = isDir,
+                size = sizes[path] ?: 0L,
+                modified = entryMeta?.first ?: 0L,
+                mode = entryMeta?.second ?: 0
+            )
         }.sortedWith(compareBy<ExplorerRow> { !it.isDir }.thenBy { it.displayName.lowercase() }.thenBy { it.displayName })
     }
 

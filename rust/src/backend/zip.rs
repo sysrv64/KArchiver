@@ -17,7 +17,7 @@ use crate::io_util::{
 use ::zip::read::ZipFile;
 use ::zip::result::ZipError;
 use ::zip::write::{FileOptions, SimpleFileOptions};
-use ::zip::{AesMode, CompressionMethod, ZipArchive, ZipReadOptions, ZipWriter};
+use ::zip::{AesMode, CompressionMethod, DateTime, ZipArchive, ZipReadOptions, ZipWriter};
 
 /// Supported split naming: classic `base.z01, base.z02, ..., base.zip` and dotted `base.zip.001, base.zip.002, ...`; given any span path, resolves the ordered segment list, or None for a single-file archive.
 fn resolve_split_segments(path: &Path) -> Result<Option<Vec<PathBuf>>> {
@@ -292,6 +292,36 @@ fn dir_options() -> SimpleFileOptions {
     SimpleFileOptions::default()
         .compression_method(CompressionMethod::Stored)
         .unix_permissions(0o755)
+}
+
+fn zip_datetime_to_millis(dt: DateTime) -> u64 {
+    let days =
+        crate::time_util::days_from_civil(dt.year() as i64, dt.month() as u32, dt.day() as u32);
+    if days < 0 {
+        return 0;
+    }
+    days as u64 * 86_400_000
+        + dt.hour() as u64 * 3_600_000
+        + dt.minute() as u64 * 60_000
+        + dt.second() as u64 * 1_000
+}
+
+fn millis_to_zip_datetime(millis: u64) -> DateTime {
+    let total_seconds = millis / 1_000;
+    let days = (total_seconds / 86_400) as i64;
+    let rem = total_seconds % 86_400;
+    let (year, month, day) = crate::time_util::civil_from_days(days);
+    if year < 1980 {
+        return DateTime::default();
+    }
+    if year > 2107 {
+        return DateTime::from_date_and_time(2107, 12, 31, 23, 59, 58).unwrap_or_default();
+    }
+    let hour = (rem / 3_600) as u8;
+    let minute = ((rem % 3_600) / 60) as u8;
+    let second = (rem % 60) as u8;
+    DateTime::from_date_and_time(year as u16, month as u8, day as u8, hour, minute, second)
+        .unwrap_or_default()
 }
 
 /// Compress `sources` into a ZIP file at `dest` (written atomically).
@@ -572,11 +602,18 @@ fn detailed_entries<R: Read + Seek>(zip: &mut ZipArchive<R>) -> Result<PreviewLi
         check_cancelled()?;
         let entry = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
         let is_dir = entry.is_dir();
+        let modified = entry
+            .last_modified()
+            .map(zip_datetime_to_millis)
+            .unwrap_or(0);
+        let mode = entry.unix_mode().map(|m| m & 0o777).unwrap_or(0);
         out.push(PreviewEntry {
             name: entry.name().to_string(),
             size: if is_dir { 0 } else { entry.size() },
             is_dir,
             encrypted: entry.encrypted(),
+            modified,
+            mode,
         });
     }
     Ok(PreviewListing::new(out))
@@ -937,6 +974,7 @@ fn write_file_entry<R: Read + Seek>(
     name: &str,
     src: &mut ZipFile<'_, R>,
     mode: Option<u32>,
+    modified: Option<DateTime>,
     compression: CompressionMethod,
     password: Option<&[u8]>,
 ) -> Result<()> {
@@ -952,6 +990,9 @@ fn write_file_entry<R: Read + Seek>(
             } else {
                 opts = opts.unix_permissions(0o644);
             }
+            if let Some(dt) = modified {
+                opts = opts.last_modified_time(dt);
+            }
             writer
                 .start_file(name.to_string(), opts)
                 .map_err(ArchiveError::backend)?;
@@ -964,6 +1005,9 @@ fn write_file_entry<R: Read + Seek>(
                 opts = opts.unix_permissions(m);
             } else {
                 opts = opts.unix_permissions(0o644);
+            }
+            if let Some(dt) = modified {
+                opts = opts.last_modified_time(dt);
             }
             writer
                 .start_file(name.to_string(), opts)
@@ -996,6 +1040,7 @@ pub fn delete_entries(archive: &Path, names: &[String], password: Option<&[u8]>)
         let name = raw.name().to_string();
         let is_dir = raw.is_dir();
         let mode = raw.unix_mode();
+        let modified = raw.last_modified();
         let compression = raw.compression();
         let encrypted = raw.encrypted();
         drop(raw);
@@ -1016,7 +1061,15 @@ pub fn delete_entries(archive: &Path, names: &[String], password: Option<&[u8]>)
             continue;
         }
         let mut entry = open_entry(&mut zip, i, pw)?;
-        write_file_entry(&mut writer, &name, &mut entry, mode, compression, pw)?;
+        write_file_entry(
+            &mut writer,
+            &name,
+            &mut entry,
+            mode,
+            modified,
+            compression,
+            pw,
+        )?;
     }
     let buffered = writer.finish().map_err(ArchiveError::backend)?;
     buffered
@@ -1092,6 +1145,7 @@ pub fn rename_entry(archive: &Path, from: &str, to: &str, password: Option<&[u8]
         let name = raw.name().to_string();
         let is_dir = raw.is_dir();
         let mode = raw.unix_mode();
+        let modified = raw.last_modified();
         let compression = raw.compression();
         drop(raw);
         progress_add(1);
@@ -1109,7 +1163,15 @@ pub fn rename_entry(archive: &Path, from: &str, to: &str, password: Option<&[u8]
             continue;
         }
         let mut entry = open_entry(&mut zip, i, pw)?;
-        write_file_entry(&mut writer, &new_name, &mut entry, mode, compression, pw)?;
+        write_file_entry(
+            &mut writer,
+            &new_name,
+            &mut entry,
+            mode,
+            modified,
+            compression,
+            pw,
+        )?;
     }
     let buffered = writer.finish().map_err(ArchiveError::backend)?;
     buffered
@@ -1167,6 +1229,7 @@ pub fn add_files(
         let name = raw.name().to_string();
         let is_dir = raw.is_dir();
         let mode = raw.unix_mode();
+        let modified = raw.last_modified();
         let compression = raw.compression();
         drop(raw);
         progress_add(1);
@@ -1180,7 +1243,15 @@ pub fn add_files(
             continue;
         }
         let mut entry = open_entry(&mut zip, i, pw)?;
-        write_file_entry(&mut writer, &name, &mut entry, mode, compression, pw)?;
+        write_file_entry(
+            &mut writer,
+            &name,
+            &mut entry,
+            mode,
+            modified,
+            compression,
+            pw,
+        )?;
     }
     let mut ordered_dirs: Vec<String> = need_dirs.into_iter().collect();
     ordered_dirs.sort();
@@ -1218,6 +1289,92 @@ pub fn add_files(
         let mut reader = BufReader::new(f);
         io::copy(&mut reader, &mut writer).map_err(classify_io)?;
         progress_add(1);
+    }
+    let buffered = writer.finish().map_err(ArchiveError::backend)?;
+    buffered
+        .into_inner()
+        .map_err(|e| ArchiveError::Io(e.into_error()))?;
+    af.commit()
+}
+
+pub fn set_entry_meta(
+    archive: &Path,
+    name: &str,
+    modified_millis: Option<u64>,
+    mode: Option<u32>,
+    password: Option<&[u8]>,
+) -> Result<()> {
+    ensure_plain_no_split(archive)?;
+    let target = trim_name(&sanitize_entry_name(name)?);
+    if target.is_empty() {
+        return Err(ArchiveError::invalid("empty entry name"));
+    }
+    let pw = password.filter(|p| !p.is_empty());
+    let mut zip = open_for_edit(archive, pw)?;
+    let total = zip.len();
+    let mut found = false;
+    for i in 0..total {
+        let e = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
+        if trim_name(e.name()) == target {
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        return Err(ArchiveError::invalid(format!("entry '{target}' not found")));
+    }
+    let new_modified = modified_millis.map(millis_to_zip_datetime);
+    progress_reset(total as u64);
+    let af = AtomicFile::new(archive)?;
+    let out_file = File::options()
+        .write(true)
+        .create_new(true)
+        .open(af.path())?;
+    let mut writer = ZipWriter::new(BufWriter::new(out_file));
+    for i in 0..total {
+        check_cancelled()?;
+        let raw = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
+        let entry_name = raw.name().to_string();
+        let is_dir = raw.is_dir();
+        let orig_mode = raw.unix_mode();
+        let orig_modified = raw.last_modified();
+        let compression = raw.compression();
+        drop(raw);
+        let is_target = trim_name(&entry_name) == target;
+        let entry_mode = if is_target {
+            mode.or(orig_mode)
+        } else {
+            orig_mode
+        };
+        let entry_modified = if is_target {
+            new_modified.or(orig_modified)
+        } else {
+            orig_modified
+        };
+        progress_add(1);
+        if is_dir {
+            let mut opts = SimpleFileOptions::default();
+            if let Some(m) = entry_mode {
+                opts = opts.unix_permissions(m);
+            }
+            if let Some(dt) = entry_modified {
+                opts = opts.last_modified_time(dt);
+            }
+            writer
+                .add_directory(trim_name(&entry_name), opts)
+                .map_err(ArchiveError::backend)?;
+            continue;
+        }
+        let mut entry = open_entry(&mut zip, i, pw)?;
+        write_file_entry(
+            &mut writer,
+            &entry_name,
+            &mut entry,
+            entry_mode,
+            entry_modified,
+            compression,
+            pw,
+        )?;
     }
     let buffered = writer.finish().map_err(ArchiveError::backend)?;
     buffered

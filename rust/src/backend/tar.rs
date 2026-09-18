@@ -346,11 +346,15 @@ pub fn list_detailed(archive: &Path, format: Format) -> Result<PreviewListing> {
             .map(|p| p.to_string_lossy().into_owned())
             .map_err(ArchiveError::backend)?;
         let size = if is_dir { 0 } else { entry.size() };
+        let modified = entry.header().mtime().unwrap_or(0).saturating_mul(1_000);
+        let mode = entry.header().mode().unwrap_or(0) & 0o777;
         out.push(PreviewEntry {
             name,
             size,
             is_dir,
             encrypted: false,
+            modified,
+            mode,
         });
     }
     Ok(PreviewListing::new(out))
@@ -918,6 +922,38 @@ pub fn add_files(
         })
         .collect();
     write_staged_tar(&kept, &additions, archive, format)
+}
+
+pub fn set_entry_meta(
+    archive: &Path,
+    format: Format,
+    name: &str,
+    modified_millis: Option<u64>,
+    mode: Option<u32>,
+) -> Result<()> {
+    let target = trim_tar_name(&sanitize_entry_name(name)?);
+    if target.is_empty() {
+        return Err(ArchiveError::invalid("empty entry name"));
+    }
+    let mut all = read_all_tar(archive, format)?;
+    let mut found = false;
+    for s in &mut all {
+        check_cancelled()?;
+        if trim_tar_name(&s.name) == target {
+            found = true;
+            if let Some(ms) = modified_millis {
+                s.header.set_mtime(ms / 1_000);
+            }
+            if let Some(m) = mode {
+                s.header.set_mode(m);
+            }
+        }
+    }
+    if !found {
+        return Err(ArchiveError::invalid(format!("entry '{target}' not found")));
+    }
+    progress_reset(all.len() as u64);
+    write_staged_tar(&all, &[], archive, format)
 }
 
 #[cfg(test)]

@@ -525,42 +525,44 @@ fun BrowserScreen(
     }
 
     propsFile?.let { file ->
-        PropertiesSheet(
-            file = file,
-            repo = remember { FileSystemRepository() },
-            elevated = state.elevationMode != "off",
-            onChmod = { mode, onDone ->
-                vm.chmodFile(file, mode) { r ->
-                    scope.launch {
-                        snackbar.showSnackbar(if (r.isSuccess) "Permissions updated" else "Could not set permissions")
+        val target = remember(file, state.elevationMode) {
+            FilePropertiesTarget(
+                file = file,
+                repo = FileSystemRepository(),
+                elevated = state.elevationMode != "off",
+                onRenameRequest = { newName, onDone ->
+                    vm.renameFile(file, newName) { r ->
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                if (r.isSuccess) "Renamed to ${r.getOrNull()?.name ?: newName}"
+                                else vm.archiveOpMessage(r.exceptionOrNull(), "Renamed", "Could not rename")
+                            )
+                        }
+                        if (r.isSuccess) propsFile = null
+                        onDone(r.map { })
                     }
-                    onDone(r)
-                }
-            },
-            onRename = { newName, onDone ->
-                vm.renameFile(file, newName) { r ->
-                    scope.launch {
-                        snackbar.showSnackbar(
-                            if (r.isSuccess) "Renamed to ${r.getOrNull()?.name ?: newName}"
-                            else vm.archiveOpMessage(r.exceptionOrNull(), "Renamed", "Could not rename")
-                        )
+                },
+                onSetModifiedRequest = { millis, onDone ->
+                    vm.setFileModified(file, millis) { r ->
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                if (r.isSuccess) "Date updated" else "Could not change date"
+                            )
+                        }
+                        onDone(r)
                     }
-                    if (r.isSuccess) propsFile = null
-                    onDone(r)
-                }
-            },
-            onSetModified = { millis, onDone ->
-                vm.setFileModified(file, millis) { r ->
-                    scope.launch {
-                        snackbar.showSnackbar(
-                            if (r.isSuccess) "Date updated" else "Could not change date"
-                        )
+                },
+                onChmodRequest = { mode, onDone ->
+                    vm.chmodFile(file, mode) { r ->
+                        scope.launch {
+                            snackbar.showSnackbar(if (r.isSuccess) "Permissions updated" else "Could not set permissions")
+                        }
+                        onDone(r)
                     }
-                    onDone(r)
                 }
-            },
-            onDismiss = { propsFile = null }
-        )
+            )
+        }
+        PropertiesSheet(target = target, onDismiss = { propsFile = null })
     }
 
     val openWithTarget = openWithFile

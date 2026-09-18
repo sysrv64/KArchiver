@@ -247,6 +247,8 @@ struct PreviewEntryDto<'a> {
     #[serde(rename = "isDir")]
     is_dir: bool,
     encrypted: bool,
+    modified: u64,
+    mode: u32,
 }
 
 #[derive(Serialize)]
@@ -283,6 +285,8 @@ fn preview_to_json(listing: &crate::backend::PreviewListing) -> Result<String> {
                 size: e.size,
                 is_dir: e.is_dir,
                 encrypted: e.encrypted,
+                modified: e.modified,
+                mode: e.mode,
             })
             .collect(),
     };
@@ -648,6 +652,18 @@ fn do_search(
     search_to_json(&matches)
 }
 
+fn do_set_entry_meta(
+    archive: &Path,
+    name: &str,
+    modified_millis: Option<u64>,
+    mode: Option<u32>,
+    password: Option<&str>,
+) -> Result<()> {
+    std::fs::File::open(archive).map(|_| ())?;
+    let format = format::detect(archive)?;
+    backend::set_entry_meta(archive, format, name, modified_millis, mode, password)
+}
+
 /// Shared JNI string-result finisher so fd and path variants throw identical
 /// `RuntimeException` shapes with only the `op` label differing.
 fn finish_json_string<'local>(
@@ -976,4 +992,73 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_addFilesTo
         result
     }));
     finish_void(&mut env, "addFilesToArchiveWithPassword", outcome)
+}
+
+fn meta_args(
+    modified_millis: jlong,
+    mode: jint,
+    password: &str,
+) -> (Option<u64>, Option<u32>, Option<&str>) {
+    let modified = if modified_millis < 0 {
+        None
+    } else {
+        Some(modified_millis as u64)
+    };
+    let mode = if mode < 0 { None } else { Some(mode as u32) };
+    let pw = if password.is_empty() {
+        None
+    } else {
+        Some(password)
+    };
+    (modified, mode, pw)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setArchiveEntryMeta(
+    mut env: JNIEnv,
+    _class: JClass,
+    archive_str: JString,
+    name_str: JString,
+    modified_millis: jlong,
+    mode: jint,
+    password_str: JString,
+) {
+    let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
+        clear_cancel();
+        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
+        let name = read_string(&mut env, &name_str)?;
+        let password = read_string(&mut env, &password_str)?;
+        let (modified, mode, pw) = meta_args(modified_millis, mode, &password);
+        let result = do_set_entry_meta(&archive, &name, modified, mode, pw);
+        if !password.is_empty() {
+            wipe_password(password);
+        }
+        result
+    }));
+    finish_void(&mut env, "setArchiveEntryMeta", outcome)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setArchiveEntryMetaFd(
+    mut env: JNIEnv,
+    _class: JClass,
+    fd: jint,
+    name_str: JString,
+    modified_millis: jlong,
+    mode: jint,
+    password_str: JString,
+) {
+    let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
+        clear_cancel();
+        let archive = fdPath(fd);
+        let name = read_string(&mut env, &name_str)?;
+        let password = read_string(&mut env, &password_str)?;
+        let (modified, mode, pw) = meta_args(modified_millis, mode, &password);
+        let result = do_set_entry_meta(&archive, &name, modified, mode, pw);
+        if !password.is_empty() {
+            wipe_password(password);
+        }
+        result
+    }));
+    finish_void(&mut env, "setArchiveEntryMetaFd", outcome)
 }

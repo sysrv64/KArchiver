@@ -356,8 +356,8 @@ fun ArchiveExplorerRoute(
         val row = rowsByPath[rel]
         if (row != null) {
             when {
-                row.isDir -> vm.openDir(row.path)
                 selectionMode -> vm.toggleSelect(row.path)
+                row.isDir -> vm.openDir(row.path)
                 else -> openEntryFile(row.path)
             }
         }
@@ -706,19 +706,21 @@ fun ArchiveExplorerRoute(
 
     propsTarget?.let { target ->
         val entry = rowsByPath[target]
-        EntryPropertiesSheet(
-            entryPath = target,
-            displayName = entry?.displayName ?: target.trimEnd('/').substringAfterLast('/'),
-            isDir = entry?.isDir ?: false,
-            size = entry?.size ?: 0L,
-            canEdit = canEdit,
-            onDismiss = { propsTarget = null },
-            onSave = { newName ->
-                scope.launch {
-                    if (vm.renameEntry(target, newName)) propsTarget = null
-                }
-            }
-        )
+        val targetProps = remember(target, entry, canEdit) {
+            ArchiveEntryPropertiesTarget(
+                vm = vm,
+                path = target,
+                displayName = entry?.displayName ?: target.trimEnd('/').substringAfterLast('/'),
+                isDir = entry?.isDir ?: false,
+                size = entry?.size ?: 0L,
+                modified = entry?.modified ?: 0L,
+                mode = entry?.mode ?: 0,
+                writable = canEdit,
+                metadataEditable = canEdit && supportsEntryMetadata(archive),
+                scope = scope
+            )
+        }
+        PropertiesSheet(target = targetProps, onDismiss = { propsTarget = null })
     }
 
     val openWithTarget = openWithFile
@@ -739,80 +741,14 @@ fun ArchiveExplorerRoute(
     }
 }
 
-@Composable
-private fun EntryPropertiesSheet(
-    entryPath: String,
-    displayName: String,
-    isDir: Boolean,
-    size: Long,
-    canEdit: Boolean,
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit
-) {
-    var name by remember(entryPath) { mutableStateOf(displayName) }
-    var validationError by remember(entryPath) { mutableStateOf<String?>(null) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Properties", style = MaterialTheme.typography.titleLarge)
-            OutlinedTextField(
-                value = name,
-                onValueChange = {
-                    name = it
-                    validationError = null
-                },
-                label = { Text("Name") },
-                singleLine = true,
-                enabled = canEdit,
-                readOnly = !canEdit,
-                isError = validationError != null,
-                supportingText = {
-                    val message = validationError
-                        ?: if (canEdit) null else "Archive is read-only"
-                    if (message != null) {
-                        Text(
-                            message,
-                            color = if (validationError != null) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-            PropLine("Path", entryPath)
-            PropLine("Type", if (isDir) "Folder" else "File")
-            PropLine("Size", if (isDir) "Folder" else formatSize(size))
-            if (canEdit) {
-                Button(
-                    onClick = {
-                        val trimmed = name.trim()
-                        validationError = when {
-                            trimmed.isEmpty() -> "Name cannot be empty"
-                            trimmed.contains("/") -> "Name cannot contain /"
-                            else -> null
-                        }
-                        if (validationError == null) onSave(trimmed)
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Save") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PropLine(label: String, value: String) {
-    Column {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
+private fun supportsEntryMetadata(archive: File): Boolean {
+    val name = archive.name.lowercase()
+    if (name.endsWith(".zip") || name.endsWith(".cbz")) return true
+    val tarSuffixes = listOf(
+        ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2",
+        ".tar.xz", ".txz", ".tar.zst", ".tar.lz4"
+    )
+    return tarSuffixes.any { name.endsWith(it) }
 }
 
 private fun queryDisplayName(context: android.content.Context, uri: Uri): String? {

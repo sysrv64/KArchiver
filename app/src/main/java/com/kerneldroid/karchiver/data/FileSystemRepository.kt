@@ -85,7 +85,9 @@ data class PreviewEntry(
     val name: String,
     val size: Long,
     val isDir: Boolean,
-    val encrypted: Boolean
+    val encrypted: Boolean,
+    val modified: Long = 0,
+    val mode: Int = 0
 )
 
 data class PreviewListing(
@@ -1021,7 +1023,9 @@ class FileSystemRepository {
                     name = o.optString("name", ""),
                     size = o.optLong("size", 0L),
                     isDir = o.optBoolean("isDir", false),
-                    encrypted = o.optBoolean("encrypted", false)
+                    encrypted = o.optBoolean("encrypted", false),
+                    modified = o.optLong("modified", 0L),
+                    mode = o.optInt("mode", 0)
                 )
             )
         }
@@ -1036,7 +1040,9 @@ class FileSystemRepository {
                     name = e.name,
                     size = if (e.isDirectory) 0L else e.size.coerceAtLeast(0L),
                     isDir = e.isDirectory,
-                    encrypted = false
+                    encrypted = false,
+                    modified = e.time.coerceAtLeast(0L),
+                    mode = 0
                 )
             }.sortedBy { it.name }.toList()
             return PreviewListing(entries = entries, encrypted = false)
@@ -1112,6 +1118,50 @@ class FileSystemRepository {
             } else {
                 RustBridge.addFilesToArchiveWithPassword(archive.absolutePath, srcPaths, destDir, password)
             }
+        }
+    }
+
+    suspend fun setArchiveEntryMeta(
+        archive: File,
+        entryName: String,
+        modifiedMillis: Long,
+        mode: Int,
+        password: String? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (isRarArchive(archive)) error("Editing RAR archives is not supported")
+            if (!archive.isFile || !archive.canWrite()) error("Editing requires a writable local file")
+            if (password.isNullOrEmpty()) {
+                RustBridge.setArchiveEntryMeta(archive.absolutePath, entryName, modifiedMillis, mode, "")
+            } else {
+                RustBridge.setArchiveEntryMeta(archive.absolutePath, entryName, modifiedMillis, mode, password)
+            }
+        }.recoverCatching { e ->
+            tryPfdSetArchiveEntryMeta(archive, entryName, modifiedMillis, mode, password)?.let { return@recoverCatching it }
+            throw e
+        }
+    }
+
+    private suspend fun tryPfdSetArchiveEntryMeta(
+        archive: File,
+        entryName: String,
+        modifiedMillis: Long,
+        mode: Int,
+        password: String?
+    ): Unit? {
+        if (!safAutoFallback) return null
+        val bridge = safBridge ?: return null
+        if (!RustBridge.isLoaded()) return null
+        val archiveReadable = try { archive.canRead() } catch (_: Exception) { false }
+        if (archiveReadable) return null
+        val pfd = bridge.openReadFdFor(archive, safVolumes) ?: return null
+        return try {
+            RustBridge.setArchiveEntryMetaFd(pfd.fd, entryName, modifiedMillis, mode, password ?: "")
+            Unit
+        } catch (_: Exception) {
+            null
+        } finally {
+            closeQuietly(pfd)
         }
     }
 
@@ -1236,6 +1286,8 @@ object RustBridge {
     @JvmStatic external fun renameArchiveEntryWithPassword(archivePath: String, from: String, to: String, password: String)
     @JvmStatic external fun addFilesToArchive(archivePath: String, srcPaths: Array<String>, destDir: String)
     @JvmStatic external fun addFilesToArchiveWithPassword(archivePath: String, srcPaths: Array<String>, destDir: String, password: String)
+    @JvmStatic external fun setArchiveEntryMeta(archivePath: String, name: String, modifiedMillis: Long, mode: Int, password: String)
+    @JvmStatic external fun setArchiveEntryMetaFd(fd: Int, name: String, modifiedMillis: Long, mode: Int, password: String)
     @JvmStatic external fun getProgress(): LongArray
     @JvmStatic external fun cancel()
 }

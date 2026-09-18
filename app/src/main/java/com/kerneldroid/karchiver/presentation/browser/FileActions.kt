@@ -61,6 +61,7 @@ import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
 import com.kerneldroid.karchiver.data.FileProperties
 import com.kerneldroid.karchiver.data.FileSystemRepository
+import com.kerneldroid.karchiver.data.FormatRegistry
 import com.kerneldroid.karchiver.data.formatBytes
 import java.io.File
 import java.text.SimpleDateFormat
@@ -69,6 +70,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -129,25 +131,107 @@ private fun octalToSymbolic(mode: Int): String {
     return bits.joinToString("") { (mask, c) -> if (mode and mask != 0) c.toString() else "-" }
 }
 
+interface PropertiesTarget {
+    val title: String
+    val canRename: Boolean get() = false
+    val canSetModified: Boolean get() = false
+    val canChmod: Boolean get() = false
+    suspend fun load(): FileProperties
+    fun rename(newName: String, onDone: (Result<Unit>) -> Unit) = onDone(Result.failure(UnsupportedOperationException()))
+    fun setModified(millis: Long, onDone: (Result<Unit>) -> Unit) = onDone(Result.failure(UnsupportedOperationException()))
+    fun chmod(mode: Int, onDone: (Result<Unit>) -> Unit) = onDone(Result.failure(UnsupportedOperationException()))
+}
+
+class FilePropertiesTarget(
+    private val file: File,
+    private val repo: FileSystemRepository,
+    private val elevated: Boolean,
+    private val onRenameRequest: (String, (Result<Unit>) -> Unit) -> Unit,
+    private val onSetModifiedRequest: (Long, (Result<Unit>) -> Unit) -> Unit,
+    private val onChmodRequest: (Int, (Result<Unit>) -> Unit) -> Unit
+) : PropertiesTarget {
+    override val title: String get() = file.name
+    override val canRename: Boolean get() = true
+    override val canSetModified: Boolean get() = true
+    override val canChmod: Boolean get() = true
+    override suspend fun load(): FileProperties = repo.loadProperties(file, elevated)
+    override fun rename(newName: String, onDone: (Result<Unit>) -> Unit) =
+        onRenameRequest(newName) { r -> onDone(r.map { }) }
+    override fun setModified(millis: Long, onDone: (Result<Unit>) -> Unit) =
+        onSetModifiedRequest(millis, onDone)
+    override fun chmod(mode: Int, onDone: (Result<Unit>) -> Unit) =
+        onChmodRequest(mode, onDone)
+}
+
+class ArchiveEntryPropertiesTarget(
+    private val vm: ArchiveExplorerViewModel,
+    private val path: String,
+    private val displayName: String,
+    private val isDir: Boolean,
+    private val size: Long,
+    private val modified: Long,
+    private val mode: Int,
+    private val writable: Boolean,
+    private val metadataEditable: Boolean,
+    private val scope: CoroutineScope
+) : PropertiesTarget {
+    override val title: String get() = displayName
+    override val canRename: Boolean get() = writable
+    override val canSetModified: Boolean get() = metadataEditable
+    override val canChmod: Boolean get() = metadataEditable
+
+    override suspend fun load(): FileProperties = withContext(Dispatchers.IO) {
+        FileProperties(
+            name = displayName,
+            path = "/" + path.trimStart('/'),
+            isDir = isDir,
+            sizeBytes = if (isDir) null else size,
+            modified = modified,
+            mime = if (isDir) "inode/directory"
+            else FormatRegistry.forExtension(displayName.substringAfterLast('.', "")).mime,
+            modeSymbolic = if (mode > 0) octalToSymbolic(mode) else null,
+            modeOctal = mode.takeIf { it > 0 },
+            canModify = writable,
+            elevated = false
+        )
+    }
+
+    override fun rename(newName: String, onDone: (Result<Unit>) -> Unit) {
+        scope.launch {
+            val ok = vm.renameEntry(path, newName)
+            onDone(if (ok) Result.success(Unit) else Result.failure(Exception("Could not rename")))
+        }
+    }
+
+    override fun setModified(millis: Long, onDone: (Result<Unit>) -> Unit) {
+        scope.launch {
+            val ok = vm.setEntryModified(path, millis)
+            onDone(if (ok) Result.success(Unit) else Result.failure(Exception("Could not change date")))
+        }
+    }
+
+    override fun chmod(mode: Int, onDone: (Result<Unit>) -> Unit) {
+        scope.launch {
+            val ok = vm.setEntryMode(path, mode)
+            onDone(if (ok) Result.success(Unit) else Result.failure(Exception("Could not set permissions")))
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PropertiesSheet(
-    file: File,
-    repo: FileSystemRepository,
-    elevated: Boolean,
-    onChmod: (Int, (Result<Unit>) -> Unit) -> Unit,
-    onRename: (String, (Result<File>) -> Unit) -> Unit,
-    onSetModified: (Long, (Result<Unit>) -> Unit) -> Unit,
+    target: PropertiesTarget,
     onDismiss: () -> Unit
 ) {
-    var props by remember(file.absolutePath) { mutableStateOf<FileProperties?>(null) }
-    var editMode by remember(file.absolutePath) { mutableStateOf(false) }
-    var octalText by remember(file.absolutePath) { mutableStateOf("") }
-    var reloadTick by remember(file.absolutePath) { mutableStateOf(0) }
-    var showRename by remember(file.absolutePath) { mutableStateOf(false) }
-    var showDatePicker by remember(file.absolutePath) { mutableStateOf(false) }
-    LaunchedEffect(file.absolutePath, reloadTick) {
-        props = withContext(Dispatchers.IO) { repo.loadProperties(file, elevated) }
+    var props by remember(target) { mutableStateOf<FileProperties?>(null) }
+    var editMode by remember(target) { mutableStateOf(false) }
+    var octalText by remember(target) { mutableStateOf("") }
+    var reloadTick by remember(target) { mutableStateOf(0) }
+    var showRename by remember(target) { mutableStateOf(false) }
+    var showDatePicker by remember(target) { mutableStateOf(false) }
+    LaunchedEffect(target, reloadTick) {
+        props = withContext(Dispatchers.IO) { runCatching { target.load() }.getOrNull() }
     }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -163,7 +247,9 @@ fun PropertiesSheet(
                 Text("Loading", style = MaterialTheme.typography.bodyMedium)
                 return@Column
             }
-            val canEdit = p.canModify
+            val canRename = p.canModify && target.canRename
+            val canSetDate = p.canModify && target.canSetModified
+            val canEditMode = p.canModify && target.canChmod
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Name", style = MaterialTheme.typography.titleSmall)
@@ -175,7 +261,7 @@ fun PropertiesSheet(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                if (canEdit) {
+                if (canRename) {
                     IconButton(onClick = { showRename = true }) {
                         Icon(Icons.Filled.Edit, "Rename")
                     }
@@ -186,7 +272,7 @@ fun PropertiesSheet(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.then(
-                    if (canEdit) Modifier.clickable { showDatePicker = true } else Modifier
+                    if (canSetDate) Modifier.clickable { showDatePicker = true } else Modifier
                 )
             ) {
                 Column(Modifier.weight(1f)) {
@@ -197,7 +283,7 @@ fun PropertiesSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (canEdit) {
+                if (canSetDate) {
                     Icon(
                         Icons.Filled.CalendarMonth,
                         null,
@@ -223,7 +309,7 @@ fun PropertiesSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (p.canModify && p.modeOctal != null) {
+                if (canEditMode && p.modeOctal != null) {
                     IconButton(onClick = {
                         octalText = p.modeOctal.toString(8).padStart(3, '0')
                         editMode = !editMode
@@ -256,7 +342,7 @@ fun PropertiesSheet(
                             val mode = parsed
                             if (mode != null) {
                                 editMode = false
-                                onChmod(mode) { reloadTick++ }
+                                target.chmod(mode) { reloadTick++ }
                             }
                         }
                     ) { Text("Apply") }
@@ -284,7 +370,7 @@ fun PropertiesSheet(
                     onClick = {
                         val name = draft.trim()
                         showRename = false
-                        onRename(name) { reloadTick++ }
+                        target.rename(name) { reloadTick++ }
                     }
                 ) { Text("Rename") }
             },
@@ -301,7 +387,7 @@ fun PropertiesSheet(
                     val selected = dateState.selectedDateMillis
                     showDatePicker = false
                     if (selected != null) {
-                        onSetModified(mergeDateKeepingTime(selected, currentModified)) { reloadTick++ }
+                        target.setModified(mergeDateKeepingTime(selected, currentModified)) { reloadTick++ }
                     }
                 }) { Text("Set date") }
             },

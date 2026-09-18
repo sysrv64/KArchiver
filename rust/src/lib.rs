@@ -11,6 +11,7 @@ pub mod format;
 pub mod io_util;
 
 mod jni_bridge;
+mod time_util;
 
 pub use error::{ArchiveError, Result};
 pub use format::Format;

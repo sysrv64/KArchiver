@@ -185,6 +185,8 @@ pub fn list_detailed(archive: &Path, _format: Format) -> Result<PreviewListing> 
         size,
         is_dir: false,
         encrypted: false,
+        modified: 0,
+        mode: 0,
     }]))
 }
 

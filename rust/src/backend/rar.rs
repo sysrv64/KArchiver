@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use rars::{
-    ArchiveReadOptions, ArchiveReader, ArchiveVersion, AttrSource, Builder, ExtractedEntryMeta,
-    WriteProgress, WriteProgressEvent, WriterResources,
+    ArchiveFamily, ArchiveReadOptions, ArchiveReader, ArchiveVersion, AttrSource, Builder,
+    ExtractedEntryMeta, WriteProgress, WriteProgressEvent, WriterResources,
 };
 
 use crate::backend::{
@@ -539,11 +539,20 @@ fn list_detailed_impl(archive: &Path, password: Option<&[u8]>) -> Result<Preview
         check_cancelled()?;
         let meta = &member.meta;
         let is_dir = meta.is_directory;
+        let modified = meta
+            .file_time
+            .map(|ft| match meta.family {
+                ArchiveFamily::Rar50Plus => u64::from(ft) * 1_000,
+                _ => crate::time_util::dos_to_unix_millis(ft),
+            })
+            .unwrap_or(0);
         out.push(PreviewEntry {
             name: meta.name_lossy(),
             size: if is_dir { 0 } else { meta.unpacked_size },
             is_dir,
             encrypted: meta.is_encrypted,
+            modified,
+            mode: 0,
         });
     }
     Ok(PreviewListing::new(out))

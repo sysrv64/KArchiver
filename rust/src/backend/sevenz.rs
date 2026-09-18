@@ -371,11 +371,21 @@ fn list_detailed_impl(archive: &Path, password: Option<&str>) -> Result<PreviewL
     for f in &reader.archive().files {
         check_cancelled()?;
         let is_dir = f.is_directory();
+        let modified = if f.has_last_modified_date {
+            let st: std::time::SystemTime = f.last_modified_date().into();
+            st.duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0)
+        } else {
+            0
+        };
         out.push(PreviewEntry {
             name: f.name().to_string(),
             size: if is_dir { 0 } else { f.size() },
             is_dir,
             encrypted: have_password,
+            modified,
+            mode: 0,
         });
     }
     Ok(PreviewListing::new(out))

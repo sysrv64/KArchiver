@@ -36,6 +36,8 @@ pub struct PreviewEntry {
     pub size: u64,
     pub is_dir: bool,
     pub encrypted: bool,
+    pub modified: u64,
+    pub mode: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -581,6 +583,41 @@ pub fn add_files_with_password(
         ))),
         other => Err(ArchiveError::Unsupported(format!(
             "Editing {} archives is not supported",
+            other.label()
+        ))),
+    }
+}
+
+pub fn set_entry_meta(
+    archive: &Path,
+    format: Format,
+    name: &str,
+    modified_millis: Option<u64>,
+    mode: Option<u32>,
+    password: Option<&str>,
+) -> Result<()> {
+    if modified_millis.is_none() && mode.is_none() {
+        return Ok(());
+    }
+    match format {
+        Format::Zip => zip::set_entry_meta(
+            archive,
+            name,
+            modified_millis,
+            mode,
+            password.map(str::as_bytes),
+        ),
+        f if f.is_tar() => tar::set_entry_meta(archive, f, name, modified_millis, mode),
+        Format::Rar => Err(ArchiveError::Unsupported(format!(
+            "{} archives do not support changing entry metadata",
+            Format::Rar.label()
+        ))),
+        Format::SevenZ => Err(ArchiveError::Unsupported(format!(
+            "{} archives do not support changing entry metadata",
+            Format::SevenZ.label()
+        ))),
+        other => Err(ArchiveError::Unsupported(format!(
+            "{} archives do not support changing entry metadata",
             other.label()
         ))),
     }
