@@ -743,6 +743,14 @@ fun SettingsElevationScreen(
             ) {
                 Text("Elevation")
             }
+            SettingSwitch(
+                index = 0,
+                count = 1,
+                title = "Browse system paths",
+                subtitle = "Off by default. Lets you go above internal storage to /, /data, /data/data, /vendor and other users. /data and app data need Root; Shizuku can only read some system paths.",
+                checked = settings.systemBrowsing,
+                onCheckedChange = { scope.launch { repo.setSystemBrowsing(it) } }
+            )
         }
     }
     if (showElevationDialog) {

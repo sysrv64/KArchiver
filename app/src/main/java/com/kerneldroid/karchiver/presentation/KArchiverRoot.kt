@@ -307,13 +307,15 @@ fun KArchiverRoot() {
             s.rarWriteEnabled,
             s.elevationMode,
             context.applicationContext,
-            s.safAutoFallback
+            s.safAutoFallback,
+            s.systemBrowsing
         )
         vm.syncSafPrefs(s.safAutoFallback)
         vm.setHideHidden(s.hideHidden)
         vm.setRarEnabled(s.rarEnabled)
         vm.setRarWriteEnabled(s.rarWriteEnabled)
         vm.setElevationMode(s.elevationMode)
+        vm.setSystemBrowsing(s.systemBrowsing)
         vm.setHistoryEnabled(s.historyEnabled)
         vm.setTrashEnabled(s.trashEnabled)
         vm.setSearchSettings(

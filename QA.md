@@ -54,6 +54,9 @@ Hold a tab and drag it to move it; hold it still briefly to open a small menu th
 **What is the Recents tab?**
 One list of the most recently changed files and folders from every mounted volume, newest first. It scans in the background with a folder budget and a time budget, shows progress while it runs, and stops early on very large storages. Tap a folder to open it in Files; tap a file to open it. Pull the refresh button in the top bar to scan again.
 
+**Can I browse above internal storage, like /data, /vendor or another user?**
+Yes, optionally. Turn on Settings → Elevation → **Browse system paths** (off by default) and pick Root or Shizuku. The Locations sheet (tap the folder title in the top bar) then gets a System section: `/`, `/data/data`, `/system`, `/vendor`, `/data/local/tmp`, and one storage entry per Android user found under `/data/media`. From `/storage/emulated/0` the breadcrumbs and the up arrow now climb to `/`. Root can list and read all of it; Shizuku runs as the `shell` user, so SELinux blocks it from `/data`, `/data/data` and other users' storage, while some system paths are readable. Read-only partitions such as `/system` and `/vendor` cannot be written even as root without a remount or an overlay, and a locked user's encrypted storage stays unreadable. Files opened from system paths are copied to the app cache first, so the normal viewer can display them.
+
 **Why is there a notification during an operation?**
 Long archive operations run in a foreground service, and Android requires a visible notification for those. It disappears when the operation finishes.
 

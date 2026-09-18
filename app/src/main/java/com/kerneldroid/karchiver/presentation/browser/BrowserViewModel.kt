@@ -122,6 +122,7 @@ data class BrowserUiState(
     val rarEnabled: Boolean = false,
     val rarWriteEnabled: Boolean = false,
     val trashEnabled: Boolean = false,
+    val systemBrowsing: Boolean = false,
     val elevationMode: String = "off",
     val isLoading: Boolean = false,
     val isSelectionMode: Boolean = false,
@@ -350,6 +351,20 @@ class BrowserViewModel(
     private var recentsJob: Job? = null
     private var recentsLoaded = false
 
+    private val _androidUsers = MutableStateFlow<List<Int>>(emptyList())
+    val androidUsers: StateFlow<List<Int>> = _androidUsers
+
+    fun loadAndroidUsers() {
+        val engine = elevationEngine()
+        if (engine == null || !canBrowseSystem()) {
+            _androidUsers.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            _androidUsers.value = repo.listAndroidUsers(engine)
+        }
+    }
+
     private val _safGrants = MutableStateFlow<Map<String, Uri>>(emptyMap())
     val safGrants: StateFlow<Map<String, Uri>> = _safGrants
 
@@ -371,7 +386,8 @@ class BrowserViewModel(
         rarWriteEnabled: Boolean = false,
         elevationMode: String = "off",
         appContext: Context,
-        safAutoFallback: Boolean = true
+        safAutoFallback: Boolean = true,
+        systemBrowsing: Boolean = false
     ) {
         if (initialized) return
         initialized = true
@@ -391,7 +407,8 @@ class BrowserViewModel(
             foldersFirst = foldersFirst,
             rarEnabled = rarEnabled,
             rarWriteEnabled = rarWriteEnabled,
-            elevationMode = elevationMode
+            elevationMode = elevationMode,
+            systemBrowsing = systemBrowsing
         )
         volumeMonitor?.stop()
         volumeMonitor = VolumeMonitor(ctx) { newVolumes ->
@@ -421,6 +438,7 @@ class BrowserViewModel(
             }
         }
         refresh()
+        loadAndroidUsers()
     }
 
     fun refreshVolumes() {
@@ -526,6 +544,7 @@ class BrowserViewModel(
     fun setElevationMode(value: String) {
         if (_state.value.elevationMode == value) return
         _state.value = _state.value.copy(elevationMode = value)
+        loadAndroidUsers()
         refresh()
     }
 
@@ -595,7 +614,15 @@ class BrowserViewModel(
                     selected = if (s.isSelectionMode) s.selected else emptySet()
                 )
             } else {
-                val items = repo.listDir(s.currentDir, s.sortBy, s.ascending, s.foldersFirst, elevationEngine())
+                val elevated = elevationEngine()
+                val items = repo.listDir(
+                    s.currentDir,
+                    s.sortBy,
+                    s.ascending,
+                    s.foldersFirst,
+                    elevated,
+                    elevatedFirst = elevated != null && canBrowseSystem() && isSystemPath(s.currentDir)
+                )
                     .asSequence()
                     .filter { !s.hideHidden || !it.name.startsWith(".") }
                     .filter { search.isEmpty || it.matchesSearch(search) }
@@ -624,10 +651,23 @@ class BrowserViewModel(
         elevationMode = s.elevationMode
     )
 
+    fun canBrowseSystem(): Boolean =
+        _state.value.systemBrowsing && _state.value.elevationMode != "off"
+
+    fun isSystemPath(dir: File): Boolean = deepestVolumeFor(dir, volumes.value) == null
+
     fun canGoUp(): Boolean {
         val current = _state.value.currentDir
+        if (canBrowseSystem()) return current.parentFile != null
         if (current.absolutePath == currentVolumeRoot().absolutePath) return false
         return current.parentFile != null
+    }
+
+    fun setSystemBrowsing(value: Boolean) {
+        if (_state.value.systemBrowsing == value) return
+        _state.value = _state.value.copy(systemBrowsing = value)
+        if (value) loadAndroidUsers() else _androidUsers.value = emptyList()
+        refresh()
     }
 
     fun recordInteraction(file: File) {
@@ -646,7 +686,8 @@ class BrowserViewModel(
     }
 
     fun navigateTo(dir: File) {
-        if (!dir.isDirectory) return
+        val allowed = dir.isDirectory || (canBrowseSystem() && dir.isAbsolute)
+        if (!allowed) return
         _state.value = _state.value.copy(
             currentDir = dir,
             selected = emptySet(),
@@ -1001,6 +1042,18 @@ class BrowserViewModel(
         val ext = file.extension.lowercase()
         if (FormatRegistry.isArchive(ext)) return
         recordInteraction(file)
+        if (file.canRead()) {
+            shareFile(context, file)
+            return
+        }
+        viewModelScope.launch {
+            val staged = repo.stageForOpen(file, elevationEngine()).getOrNull() ?: return@launch
+            shareFile(context, staged)
+        }
+    }
+
+    private fun shareFile(context: Context, file: File) {
+        val ext = file.extension.lowercase()
         val mime = FormatRegistry.forExtension(ext).mime
         val uri = try {
             FileProvider.getUriForFile(context, "${context.packageName}.provider", file)

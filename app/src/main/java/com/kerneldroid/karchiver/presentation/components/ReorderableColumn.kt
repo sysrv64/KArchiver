@@ -46,7 +46,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
-const val HoldToMenuMillis = 1200L
+const val HoldToMenuMillis = 1600L
 
 private val DragSlop = 6.dp
 

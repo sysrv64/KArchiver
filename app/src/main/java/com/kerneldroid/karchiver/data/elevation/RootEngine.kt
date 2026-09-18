@@ -727,14 +727,19 @@ object RootEngine : ElevatedFS {
     override suspend fun listDetailed(dir: File): List<ElevatedEntry>? {
         return try {
             if (isFreshNegative()) return null
-            when (val outcome = runInteractive("ls -A1 -p -- ${shellQuote(dir.absolutePath)}")) {
+            when (val outcome = runInteractive("ls -lA -- ${shellQuote(dir.absolutePath)}")) {
                 is ExecOutcome.Done -> {
                     if (outcome.exitCode != 0) {
                         invalidate()
                         null
                     } else {
                         noteSuccess()
-                        parseLsDetailed(dir, outcome.stdout)
+                        if (outcome.stdout.isBlank()) {
+                            emptyList()
+                        } else {
+                            val parsed = parseLsLong(dir, outcome.stdout)
+                            if (parsed.isNotEmpty()) parsed else listNamesDetailed(dir)
+                        }
                     }
                 }
                 is ExecOutcome.Missing -> {
@@ -749,6 +754,18 @@ object RootEngine : ElevatedFS {
         } catch (_: Exception) {
             Log.e(TAG, "listDetailed failed")
             null
+        }
+    }
+
+    private suspend fun listNamesDetailed(dir: File): List<ElevatedEntry> {
+        return try {
+            when (val outcome = runInteractive("ls -A1 -p -- ${shellQuote(dir.absolutePath)}")) {
+                is ExecOutcome.Done ->
+                    if (outcome.exitCode == 0) parseLsDetailed(dir, outcome.stdout) else emptyList()
+                else -> emptyList()
+            }
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 

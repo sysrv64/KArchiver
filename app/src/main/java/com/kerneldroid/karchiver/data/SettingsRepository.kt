@@ -58,6 +58,7 @@ data class AppSettings(
     val elevationMode: String = "off",
     val safAutoFallback: Boolean = true,
     val seeDevicesInUi: Boolean = false,
+    val systemBrowsing: Boolean = false,
     val drawerTabs: List<String> = DEFAULT_DRAWER_TABS,
     val searchInContent: Boolean = false,
     val searchInArchives: Boolean = true,
@@ -92,6 +93,7 @@ class SettingsRepository(private val appContext: Context) {
         val RAR_WRITE_ENABLED = booleanPreferencesKey("rar_write_enabled")
         val SAF_AUTO_FALLBACK = booleanPreferencesKey("saf_auto_fallback")
         val SEE_DEVICES_IN_UI = booleanPreferencesKey("see_devices_in_ui")
+        val SYSTEM_BROWSING = booleanPreferencesKey("system_browsing")
         val HISTORY_ENABLED = booleanPreferencesKey("history_enabled")
         val DRAWER_TABS = stringPreferencesKey("drawer_tabs")
         val SEARCH_IN_CONTENT = booleanPreferencesKey("search_in_content")
@@ -157,6 +159,7 @@ class SettingsRepository(private val appContext: Context) {
             elevationMode = p[Keys.ELEVATION_MODE] ?: "off",
             safAutoFallback = p[Keys.SAF_AUTO_FALLBACK] ?: true,
             seeDevicesInUi = p[Keys.SEE_DEVICES_IN_UI] ?: false,
+            systemBrowsing = p[Keys.SYSTEM_BROWSING] ?: false,
             drawerTabs = parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty {
                 migrateDrawerTabs(p[Keys.HISTORY_ENABLED] ?: true, p[Keys.TRASH_ENABLED] ?: false)
             },
@@ -226,6 +229,9 @@ class SettingsRepository(private val appContext: Context) {
 
     suspend fun setSeeDevicesInUi(value: Boolean) =
         appContext.dataStore.edit { it[Keys.SEE_DEVICES_IN_UI] = value }
+
+    suspend fun setSystemBrowsing(value: Boolean) =
+        appContext.dataStore.edit { it[Keys.SYSTEM_BROWSING] = value }
 
     suspend fun setSearchInContent(value: Boolean) =
         appContext.dataStore.edit { it[Keys.SEARCH_IN_CONTENT] = value }

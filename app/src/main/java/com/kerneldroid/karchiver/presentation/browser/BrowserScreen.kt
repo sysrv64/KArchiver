@@ -358,6 +358,7 @@ fun BrowserScreen(
                     Breadcrumbs(
                         current = state.currentDir,
                         volumes = volumes,
+                        systemBrowsing = vm.canBrowseSystem(),
                         onNavigate = vm::navigateTo,
                         onOpenVolumes = { showVolumePicker = true }
                     )
@@ -524,10 +525,15 @@ fun BrowserScreen(
     }
 
     if (showVolumePicker) {
+        val androidUsers by vm.androidUsers.collectAsStateWithLifecycle()
         VolumePickerDialog(
             current = state.currentDir,
             volumes = volumes,
+            systemBrowsing = vm.canBrowseSystem(),
+            systemBrowsingWanted = state.systemBrowsing,
+            androidUsers = androidUsers,
             onPick = { vm.switchVolume(it); showVolumePicker = false },
+            onPickPath = { vm.navigateTo(it); showVolumePicker = false },
             onDismiss = { showVolumePicker = false }
         )
     }
@@ -1068,13 +1074,17 @@ private fun CreateFabMenu(
 private fun VolumePickerDialog(
     current: File,
     volumes: List<AppVolume>,
+    systemBrowsing: Boolean,
+    systemBrowsingWanted: Boolean,
+    androidUsers: List<Int>,
     onPick: (AppVolume) -> Unit,
+    onPickPath: (File) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Filled.Storage, null) },
-        title = { Text("Storage volumes") },
+        title = { Text("Locations") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (volumes.isEmpty()) {
@@ -1085,38 +1095,37 @@ private fun VolumePickerDialog(
                     )
                 }
                 volumes.forEach { volume ->
-                    val selected = current.isWithin(volume.root)
-                    ListItem(
-                        supportingContent = {
-                            Text(
-                                volume.root.absolutePath,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        leadingContent = {
-                            Icon(
-                                if (volume.isPrimary) Icons.Filled.Smartphone
-                                else if (volume.kind == VolumeKind.USB) Icons.Filled.Usb
-                                else Icons.Filled.SdStorage,
-                                null
-                            )
-                        },
-                        trailingContent = {
-                            if (selected) Icon(Icons.Filled.Check, null)
-                        },
-                        colors = ListItemDefaults.colors(
-                            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
-                            else Color.Transparent
-                        ),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .combinedClickable(onClick = { onPick(volume) })
-                    ) {
-                        Text(
-                            volume.label,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    VolumeRow(volume = volume, current = current, onPick = { onPick(volume) })
+                }
+                if (systemBrowsingWanted && !systemBrowsing) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                    Text(
+                        "Turn on Root or Shizuku in Settings \u2192 Elevation to browse system paths.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (systemBrowsing) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                    Text(
+                        "System",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    val entries = buildList {
+                        add("System root" to File("/"))
+                        add("App data" to File("/data/data"))
+                        add("System partition" to File("/system"))
+                        add("Vendor" to File("/vendor"))
+                        add("Temp" to File("/data/local/tmp"))
+                        androidUsers.forEach { id -> add("User $id storage" to File("/data/media/$id")) }
+                    }
+                    entries.forEach { (label, path) ->
+                        PathRow(
+                            label = label,
+                            path = path,
+                            current = current,
+                            onPick = onPickPath
                         )
                     }
                 }
@@ -1126,6 +1135,68 @@ private fun VolumePickerDialog(
             TextButton(onClick = onDismiss) { Text("Close") }
         }
     )
+}
+
+@Composable
+private fun VolumeRow(
+    volume: AppVolume,
+    current: File,
+    onPick: () -> Unit
+) {
+    val selected = current.isWithin(volume.root)
+    ListItem(
+        supportingContent = {
+            Text(volume.root.absolutePath, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        leadingContent = {
+            Icon(
+                if (volume.isPrimary) Icons.Filled.Smartphone
+                else if (volume.kind == VolumeKind.USB) Icons.Filled.Usb
+                else Icons.Filled.SdStorage,
+                null
+            )
+        },
+        trailingContent = {
+            if (selected) Icon(Icons.Filled.Check, null)
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
+            else Color.Transparent
+        ),
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(onClick = onPick)
+    ) {
+        Text(volume.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun PathRow(
+    label: String,
+    path: File,
+    current: File,
+    onPick: (File) -> Unit
+) {
+    val selected = current.absolutePath == path.absolutePath
+    ListItem(
+        supportingContent = {
+            Text(path.absolutePath, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        leadingContent = { Icon(Icons.Filled.Folder, null) },
+        trailingContent = {
+            if (selected) Icon(Icons.Filled.Check, null)
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
+            else Color.Transparent
+        ),
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(onClick = { onPick(path) })
+    ) {
+        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 @Composable
@@ -1237,10 +1308,11 @@ internal fun SelectionTopBar(
 internal fun Breadcrumbs(
     current: File,
     volumes: List<AppVolume> = emptyList(),
+    systemBrowsing: Boolean = false,
     onNavigate: (File) -> Unit,
     onOpenVolumes: () -> Unit = {}
 ) {
-    val segments = remember(current, volumes) { ancestorsOf(current, volumes) }
+    val segments = remember(current, volumes, systemBrowsing) { ancestorsOf(current, volumes, systemBrowsing) }
     if (segments.size <= 1) return
     val scroll = rememberScrollState()
     LaunchedEffect(current.absolutePath) { scroll.scrollTo(scroll.maxValue) }
@@ -1761,21 +1833,28 @@ private fun EmptyState(query: String) {
     }
 }
 
-private fun ancestorsOf(current: File, volumes: List<AppVolume> = emptyList()): List<Pair<File, String>> {
+private fun ancestorsOf(
+    current: File,
+    volumes: List<AppVolume> = emptyList(),
+    systemBrowsing: Boolean = false
+): List<Pair<File, String>> {
     val internalRoot = Environment.getExternalStorageDirectory()
     val volumeRoot = deepestVolumeFor(current, volumes)
-    val root = volumeRoot?.root ?: internalRoot
-    val rootLabel = volumeRoot?.label ?: "Internal storage"
+    val systemRoot = File("/")
+    val root = if (systemBrowsing) systemRoot else (volumeRoot?.root ?: internalRoot)
+    val rootLabel = if (systemBrowsing) "System" else (volumeRoot?.label ?: "Internal storage")
     val stack = ArrayDeque<File>()
     var f: File? = current
-    while (f != null && f.absolutePath.length >= root.absolutePath.length) {
+    while (f != null) {
         stack.addFirst(f)
         if (f.absolutePath == root.absolutePath) break
+        if (!systemBrowsing && f.absolutePath.length < root.absolutePath.length) break
         f = f.parentFile
     }
     return stack.map { file ->
         file to when {
             file.absolutePath == root.absolutePath -> rootLabel
+            volumeRoot != null && file.absolutePath == volumeRoot.root.absolutePath -> volumeRoot.label
             file.parentFile == null -> "/"
             else -> file.name
         }

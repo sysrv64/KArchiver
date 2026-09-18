@@ -152,14 +152,13 @@ class FileSystemRepository {
         sortBy: SortBy = SortBy.NAME,
         ascending: Boolean = true,
         foldersFirst: Boolean = true,
-        elevated: ElevatedFS? = null
+        elevated: ElevatedFS? = null,
+        elevatedFirst: Boolean = false
     ): List<FileItem> = withContext(Dispatchers.IO) {
         val listed = path.listFiles()
         val safFirst = useSafFirst(path)
-        val raw = (if (safFirst) safItemsFor(path) else null)
-            ?: listed?.map { FileItem(it) }
-            ?: (if (!safFirst) safItemsFor(path) else null)
-            ?: elevated?.listDetailed(path)?.map { entry ->
+        val elevatedItems: suspend () -> List<FileItem>? = {
+            elevated?.listDetailed(path)?.map { entry ->
                 FileItem(
                     file = entry.file,
                     name = entry.file.name,
@@ -168,7 +167,20 @@ class FileSystemRepository {
                     lastModified = entry.modified
                 )
             }
-            ?: emptyList()
+        }
+        val raw = if (elevatedFirst && elevated != null) {
+            elevatedItems()
+                ?: (if (safFirst) safItemsFor(path) else null)
+                ?: listed?.map { FileItem(it) }
+                ?: (if (!safFirst) safItemsFor(path) else null)
+                ?: emptyList()
+        } else {
+            (if (safFirst) safItemsFor(path) else null)
+                ?: listed?.map { FileItem(it) }
+                ?: (if (!safFirst) safItemsFor(path) else null)
+                ?: elevatedItems()
+                ?: emptyList()
+        }
         val key: Comparator<FileItem> = when (sortBy) {
             SortBy.NAME -> compareBy { it.name.lowercase() }
             SortBy.DATE -> compareBy { it.lastModified }
@@ -313,11 +325,59 @@ class FileSystemRepository {
     }
 
     suspend fun listNames(dir: File, elevated: ElevatedFS? = null): Set<String> = withContext(Dispatchers.IO) {
-        if (!dir.isDirectory) return@withContext emptySet()
+        if (!dir.isDirectory && elevated == null) return@withContext emptySet()
         runCatching {
-            listDir(dir, SortBy.NAME, ascending = true, foldersFirst = true, elevated = elevated)
-                .mapTo(HashSet()) { it.name }
+            listDir(
+                dir,
+                SortBy.NAME,
+                ascending = true,
+                foldersFirst = true,
+                elevated = elevated,
+                elevatedFirst = elevated != null && !dir.isDirectory
+            ).mapTo(HashSet()) { it.name }
         }.getOrDefault(emptySet())
+    }
+
+    suspend fun listAndroidUsers(elevated: ElevatedFS? = null): List<Int> = withContext(Dispatchers.IO) {
+        if (elevated == null) return@withContext emptyList()
+        runCatching {
+            listDir(
+                File("/data/media"),
+                SortBy.NAME,
+                ascending = true,
+                foldersFirst = false,
+                elevated = elevated,
+                elevatedFirst = true
+            ).mapNotNull { it.name.toIntOrNull() }.distinct().sorted()
+        }.getOrDefault(emptyList())
+    }
+
+    suspend fun stageForOpen(file: File, elevated: ElevatedFS? = null): Result<File> = withContext(Dispatchers.IO) {
+        runCatching {
+            val cache = tempDir ?: error("No cache directory")
+            val staging = File(cache, "open").apply { mkdirs() }
+            val existing = staging.listFiles()
+            if (existing != null && existing.size > 40) existing.forEach { it.deleteRecursively() }
+            val dest = File(staging, file.name.ifEmpty { "file" })
+            if (dest.exists() && !dest.delete()) error("Could not stage file")
+            if (file.canRead()) {
+                file.inputStream().use { input -> dest.outputStream().use { input.copyTo(it) } }
+                return@runCatching dest
+            }
+            val engine = elevated ?: error("Needs elevated access")
+            var copied = engine.copyInto(file, dest) && dest.exists()
+            if (!copied) {
+                val pfd = engine.openReadFd(file.absolutePath)
+                if (pfd != null) {
+                    android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd).use { input ->
+                        dest.outputStream().use { input.copyTo(it) }
+                    }
+                    copied = dest.exists()
+                }
+            }
+            if (!copied) error("Could not read file")
+            dest
+        }
     }
 
     suspend fun copy(
