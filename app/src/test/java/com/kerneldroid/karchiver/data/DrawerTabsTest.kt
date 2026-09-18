@@ -20,24 +20,6 @@ class DrawerTabsTest {
     }
 
     @Test
-    fun enablingTrashAddsTabBeforeSettings() {
-        val result = syncTrashTab(listOf("files", "home", "recents", "settings"), true)
-        assertEquals(listOf("files", "home", "recents", "trash", "settings"), result)
-    }
-
-    @Test
-    fun enablingTrashKeepsExistingPosition() {
-        val current = listOf("files", "trash", "home", "settings")
-        assertEquals(current, syncTrashTab(current, true))
-    }
-
-    @Test
-    fun disablingTrashRemovesTab() {
-        val result = syncTrashTab(listOf("files", "trash", "home", "settings"), false)
-        assertEquals(listOf("files", "home", "settings"), result)
-    }
-
-    @Test
     fun parseTrimsAndDeduplicates() {
         val parsed = parseDrawerTabs(" files \nhome\n\nfiles\nsettings ")
         assertEquals(listOf("files", "home", "settings"), parsed)
@@ -49,8 +31,24 @@ class DrawerTabsTest {
     }
 
     @Test
-    fun defaultsContainRecentsAndNoTrash() {
+    fun defaultsContainHistoryAndRecentsWithoutTrash() {
         assertTrue(DEFAULT_DRAWER_TABS.contains("recents"))
+        assertTrue(DEFAULT_DRAWER_TABS.contains(DRAWER_TAB_HISTORY))
         assertFalse(DEFAULT_DRAWER_TABS.contains(DRAWER_TAB_TRASH))
+    }
+
+    @Test
+    fun migrationKeepsHistoryAndTrashPreferences() {
+        val tabs = migrateDrawerTabs(historyEnabled = true, trashEnabled = true)
+        assertEquals(
+            listOf("files", "home", "recents", "history", "trash", "settings"),
+            tabs
+        )
+    }
+
+    @Test
+    fun migrationDropsDisabledTabs() {
+        val tabs = migrateDrawerTabs(historyEnabled = false, trashEnabled = false)
+        assertEquals(listOf("files", "home", "recents", "settings"), tabs)
     }
 }

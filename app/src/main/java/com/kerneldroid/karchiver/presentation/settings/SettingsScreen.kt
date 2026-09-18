@@ -92,7 +92,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kerneldroid.karchiver.BuildConfig
 import com.kerneldroid.karchiver.data.AppSettings
 import com.kerneldroid.karchiver.data.SettingsRepository
-import com.kerneldroid.karchiver.data.trash.TrashRepository
 import com.kerneldroid.karchiver.data.SortBy
 import com.kerneldroid.karchiver.data.ThemeMode
 import com.kerneldroid.karchiver.data.elevation.RootEngine
@@ -424,10 +423,6 @@ fun SettingsFilesScreen(
 ) {
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    val context = LocalContext.current
-    val trashRepo = remember { TrashRepository.get(context.applicationContext) }
-    val trashEntries by trashRepo.entries.collectAsStateWithLifecycle(initialValue = emptyList())
-    var confirmTrashOff by remember { mutableStateOf(false) }
     var rarUnlockAt by remember { mutableLongStateOf(0L) }
     var rarUnlockJob by remember { mutableStateOf<Job?>(null) }
     val rarInteractions = remember { MutableInteractionSource() }
@@ -542,7 +537,7 @@ fun SettingsFilesScreen(
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SettingSwitch(
                 index = 0,
-                count = 7,
+                count = 5,
                 title = "Open last folder",
                 subtitle = "Return to the folder you were in when the app starts.",
                 checked = settings.openLastFolder,
@@ -550,7 +545,7 @@ fun SettingsFilesScreen(
             )
             SettingSwitch(
                 index = 1,
-                count = 7,
+                count = 5,
                 title = "Hide hidden files",
                 subtitle = "Do not show files and folders whose name starts with a dot.",
                 checked = settings.hideHidden,
@@ -558,7 +553,7 @@ fun SettingsFilesScreen(
             )
             SettingSwitch(
                 index = 2,
-                count = 7,
+                count = 5,
                 title = "Confirm before delete",
                 subtitle = "Ask for confirmation before deleting files and folders.",
                 checked = settings.confirmDelete,
@@ -566,34 +561,15 @@ fun SettingsFilesScreen(
             )
             SettingSwitch(
                 index = 3,
-                count = 7,
-                title = "Trash",
-                subtitle = "Deleted files go to Trash and can be restored later. Requires direct access to the location.",
-                checked = settings.trashEnabled,
-                onCheckedChange = { enabled ->
-                    if (!enabled && trashEntries.isNotEmpty()) confirmTrashOff = true
-                    else scope.launch { repo.setTrashEnabled(enabled) }
-                }
-            )
-            SettingSwitch(
-                index = 4,
-                count = 7,
-                title = "History",
-                subtitle = "Keep a searchable history of everything you open. When off, only the last few folders are kept.",
-                checked = settings.historyEnabled,
-                onCheckedChange = { scope.launch { repo.setHistoryEnabled(it) } }
-            )
-            SettingSwitch(
-                index = 5,
-                count = 7,
+                count = 5,
                 title = "See devices in UI",
                 subtitle = "Show connected drives with used space in the navigation bar.",
                 checked = settings.seeDevicesInUi,
                 onCheckedChange = { scope.launch { repo.setSeeDevicesInUi(it) } }
             )
             SettingSwitch(
-                index = 6,
-                count = 7,
+                index = 4,
+                count = 5,
                 title = "RAR support",
                 subtitle = if (settings.rarWriteEnabled) "Read and write. Packing unlocked."
                     else "Read-only. Hold this row 5 seconds to unlock RAR packing.",
@@ -616,27 +592,6 @@ fun SettingsFilesScreen(
                 }
             )
         }
-    }
-    if (confirmTrashOff) {
-        AlertDialog(
-            onDismissRequest = { confirmTrashOff = false },
-            title = { Text("Turn off Trash?") },
-            text = {
-                Text(
-                    "Files already in Trash stay on disk but hidden, and the Trash tab disappears. " +
-                        "Turn Trash back on to restore them, or delete them from the Trash screen to free space."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmTrashOff = false
-                    scope.launch { repo.setTrashEnabled(false) }
-                }) { Text("Turn off") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmTrashOff = false }) { Text("Cancel") }
-            }
-        )
     }
 }
 

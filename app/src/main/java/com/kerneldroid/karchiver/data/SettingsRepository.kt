@@ -16,8 +16,9 @@ private val Context.dataStore by preferencesDataStore(name = "karchiver_settings
 enum class ThemeMode { SYSTEM, LIGHT, DARK, OLED }
 
 const val DRAWER_TAB_TRASH = "trash"
+const val DRAWER_TAB_HISTORY = "history"
 
-val DEFAULT_DRAWER_TABS = listOf("files", "home", "recents", "settings")
+val DEFAULT_DRAWER_TABS = listOf("files", "home", "recents", "history", "settings")
 
 internal fun insertDrawerTab(current: List<String>, id: String): List<String> {
     val settingsIndex = current.indexOf("settings")
@@ -26,10 +27,12 @@ internal fun insertDrawerTab(current: List<String>, id: String): List<String> {
     return updated
 }
 
-internal fun syncTrashTab(current: List<String>, enabled: Boolean): List<String> = when {
-    enabled && current.contains(DRAWER_TAB_TRASH) -> current
-    enabled -> insertDrawerTab(current, DRAWER_TAB_TRASH)
-    else -> current.filter { it != DRAWER_TAB_TRASH }
+internal fun migrateDrawerTabs(historyEnabled: Boolean, trashEnabled: Boolean): List<String> {
+    val tabs = mutableListOf("files", "home", "recents")
+    if (historyEnabled) tabs.add(DRAWER_TAB_HISTORY)
+    if (trashEnabled) tabs.add(DRAWER_TAB_TRASH)
+    tabs.add("settings")
+    return tabs
 }
 
 internal fun parseDrawerTabs(raw: String?): List<String> = raw
@@ -50,19 +53,20 @@ data class AppSettings(
     val defaultView: String = "list",
     val foldersFirst: Boolean = true,
     val confirmDelete: Boolean = true,
-    val trashEnabled: Boolean = false,
     val rarEnabled: Boolean = false,
     val rarWriteEnabled: Boolean = false,
     val elevationMode: String = "off",
     val safAutoFallback: Boolean = true,
     val seeDevicesInUi: Boolean = false,
-    val historyEnabled: Boolean = true,
     val drawerTabs: List<String> = DEFAULT_DRAWER_TABS,
     val searchInContent: Boolean = false,
     val searchInArchives: Boolean = true,
     val searchCaseSensitive: Boolean = false,
     val searchMaxScanMb: Int = 5
-)
+) {
+    val trashEnabled: Boolean get() = drawerTabs.contains(DRAWER_TAB_TRASH)
+    val historyEnabled: Boolean get() = drawerTabs.contains(DRAWER_TAB_HISTORY)
+}
 
 class SettingsRepository(private val appContext: Context) {
 
@@ -148,14 +152,14 @@ class SettingsRepository(private val appContext: Context) {
             defaultView = p[Keys.DEFAULT_VIEW] ?: "list",
             foldersFirst = p[Keys.FOLDERS_FIRST] ?: true,
             confirmDelete = p[Keys.CONFIRM_DELETE] ?: true,
-            trashEnabled = p[Keys.TRASH_ENABLED] ?: false,
             rarEnabled = p[Keys.RAR_ENABLED] ?: false,
             rarWriteEnabled = p[Keys.RAR_WRITE_ENABLED] ?: false,
             elevationMode = p[Keys.ELEVATION_MODE] ?: "off",
             safAutoFallback = p[Keys.SAF_AUTO_FALLBACK] ?: true,
             seeDevicesInUi = p[Keys.SEE_DEVICES_IN_UI] ?: false,
-            historyEnabled = p[Keys.HISTORY_ENABLED] ?: true,
-            drawerTabs = parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty { DEFAULT_DRAWER_TABS },
+            drawerTabs = parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty {
+                migrateDrawerTabs(p[Keys.HISTORY_ENABLED] ?: true, p[Keys.TRASH_ENABLED] ?: false)
+            },
             searchInContent = p[Keys.SEARCH_IN_CONTENT] ?: false,
             searchInArchives = p[Keys.SEARCH_IN_ARCHIVES] ?: true,
             searchCaseSensitive = p[Keys.SEARCH_CASE_SENSITIVE] ?: false,
@@ -198,27 +202,8 @@ class SettingsRepository(private val appContext: Context) {
     suspend fun setConfirmDelete(value: Boolean) =
         appContext.dataStore.edit { it[Keys.CONFIRM_DELETE] = value }
 
-    suspend fun setTrashEnabled(value: Boolean) =
-        appContext.dataStore.edit { p ->
-            p[Keys.TRASH_ENABLED] = value
-            p[Keys.DRAWER_TABS] = syncTrashTab(parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty { DEFAULT_DRAWER_TABS }, value).joinToString("\n")
-        }
-
     suspend fun setDrawerTabs(ids: List<String>) = appContext.dataStore.edit { p ->
         p[Keys.DRAWER_TABS] = ids.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")
-    }
-
-    suspend fun removeDrawerTab(id: String) = appContext.dataStore.edit { p ->
-        val current = parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty { DEFAULT_DRAWER_TABS }
-        p[Keys.DRAWER_TABS] = current.filter { it != id }.joinToString("\n")
-        if (id == DRAWER_TAB_TRASH) p[Keys.TRASH_ENABLED] = false
-    }
-
-    suspend fun restoreDrawerTab(id: String) = appContext.dataStore.edit { p ->
-        val current = parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty { DEFAULT_DRAWER_TABS }
-        if (current.contains(id)) return@edit
-        p[Keys.DRAWER_TABS] = insertDrawerTab(current, id).joinToString("\n")
-        if (id == DRAWER_TAB_TRASH) p[Keys.TRASH_ENABLED] = true
     }
 
     suspend fun setRarEnabled(value: Boolean) =
@@ -241,9 +226,6 @@ class SettingsRepository(private val appContext: Context) {
 
     suspend fun setSeeDevicesInUi(value: Boolean) =
         appContext.dataStore.edit { it[Keys.SEE_DEVICES_IN_UI] = value }
-
-    suspend fun setHistoryEnabled(value: Boolean) =
-        appContext.dataStore.edit { it[Keys.HISTORY_ENABLED] = value }
 
     suspend fun setSearchInContent(value: Boolean) =
         appContext.dataStore.edit { it[Keys.SEARCH_IN_CONTENT] = value }

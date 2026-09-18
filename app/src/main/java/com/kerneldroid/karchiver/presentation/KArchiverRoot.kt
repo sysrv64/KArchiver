@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +27,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SdStorage
@@ -53,6 +56,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -61,6 +65,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -76,6 +81,7 @@ import androidx.navigation.compose.rememberNavController
 import com.kerneldroid.karchiver.data.AppSettings
 import com.kerneldroid.karchiver.data.DEFAULT_DRAWER_TABS
 import com.kerneldroid.karchiver.data.SettingsRepository
+import com.kerneldroid.karchiver.data.insertDrawerTab
 import com.kerneldroid.karchiver.data.formatBytes
 import com.kerneldroid.karchiver.data.history.HistoryEntry
 import com.kerneldroid.karchiver.data.loadVolumeStats
@@ -116,7 +122,6 @@ private val DrawerSheetWidth = 280.dp
 private val DeviceUsageBarWidth = 168.dp
 private val DrawerTabHeight = 56.dp
 private val DrawerTabSpacing = 4.dp
-private val RestoreTabsAreaHeight = 52.dp
 
 private enum class DrawerTab(
     val id: String,
@@ -128,12 +133,20 @@ private enum class DrawerTab(
     FILES("files", RootRoute.BROWSER, "Files", Icons.Filled.Folder, mandatory = true),
     HOME("home", RootRoute.HOME, "Home", Icons.Filled.Home),
     RECENTS("recents", RootRoute.RECENTS, "Recents", Icons.Filled.Schedule),
+    HISTORY("history", RootRoute.HISTORY, "History", Icons.Filled.History),
     TRASH("trash", RootRoute.TRASH, "Trash", Icons.Filled.Delete),
     SETTINGS("settings", RootRoute.SETTINGS, "Settings", Icons.Filled.Settings, mandatory = true);
 
     companion object {
         fun fromId(id: String): DrawerTab? = entries.firstOrNull { it.id == id }
     }
+}
+
+private fun normalizeDrawerTabs(order: List<String>): List<DrawerTab> {
+    val parsed = order.mapNotNull { DrawerTab.fromId(it) }.toMutableList()
+    if (parsed.none { it == DrawerTab.FILES }) parsed.add(0, DrawerTab.FILES)
+    if (parsed.none { it == DrawerTab.SETTINGS }) parsed.add(DrawerTab.SETTINGS)
+    return parsed
 }
 
 @Composable
@@ -223,11 +236,16 @@ fun KArchiverRoot() {
     val favorites by settingsRepo.favorites.collectAsStateWithLifecycle(initialValue = emptySet())
 
     val drawerOrder = settings?.drawerTabs ?: DEFAULT_DRAWER_TABS
-    val drawerTabs = remember(drawerOrder) {
-        val parsed = drawerOrder.mapNotNull { DrawerTab.fromId(it) }.toMutableList()
-        if (parsed.none { it == DrawerTab.FILES }) parsed.add(0, DrawerTab.FILES)
-        if (parsed.none { it == DrawerTab.SETTINGS }) parsed.add(DrawerTab.SETTINGS)
-        parsed
+    val storedTabs = remember(drawerOrder) { normalizeDrawerTabs(drawerOrder) }
+    val drawerTabs = remember {
+        mutableStateListOf<DrawerTab>().apply { addAll(storedTabs) }
+    }
+    LaunchedEffect(storedTabs) {
+        val ids = storedTabs.map { it.id }
+        if (drawerTabs.map { it.id } != ids) {
+            drawerTabs.clear()
+            drawerTabs.addAll(storedTabs)
+        }
     }
     var tabMenuId by remember { mutableStateOf<String?>(null) }
     var emptyMenu by remember { mutableStateOf(false) }
@@ -354,11 +372,10 @@ fun KArchiverRoot() {
                         itemHeight = DrawerTabHeight,
                         itemSpacing = DrawerTabSpacing,
                         onMove = { from, to ->
-                            val ids = drawerTabs.map { it.id }.toMutableList()
-                            if (from in ids.indices && to in ids.indices) {
-                                val moved = ids.removeAt(from)
-                                ids.add(to, moved)
-                                drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
+                            if (from in drawerTabs.indices && to in drawerTabs.indices) {
+                                val moved = drawerTabs.removeAt(from)
+                                drawerTabs.add(to, moved)
+                                drawerScope.launch { settingsRepo.setDrawerTabs(drawerTabs.map { it.id }) }
                             }
                         },
                         onHoldStill = { tab -> tabMenuId = tab.id }
@@ -372,18 +389,24 @@ fun KArchiverRoot() {
                             onRemove = {
                                 tabMenuId = null
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                drawerScope.launch { settingsRepo.removeDrawerTab(tab.id) }
+                                drawerTabs.removeAll { it.id == tab.id }
+                                drawerScope.launch { settingsRepo.setDrawerTabs(drawerTabs.map { it.id }) }
                             }
                         )
                     }
-                    RestoreTabsArea(
+                    AddTabsRow(
                         shown = drawerTabs,
                         expanded = emptyMenu,
                         onExpandedChange = { emptyMenu = it },
                         onRestore = { tab ->
                             emptyMenu = false
                             haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                            drawerScope.launch { settingsRepo.restoreDrawerTab(tab.id) }
+                            if (drawerTabs.none { it.id == tab.id }) {
+                                val ids = insertDrawerTab(drawerTabs.map { it.id }, tab.id)
+                                drawerTabs.clear()
+                                drawerTabs.addAll(ids.mapNotNull { DrawerTab.fromId(it) })
+                                drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
+                            }
                         }
                     )
                     if (favorites.isNotEmpty()) {
@@ -701,20 +724,47 @@ private fun DrawerTabRow(
 }
 
 @Composable
-private fun RestoreTabsArea(
+private fun AddTabsRow(
     shown: List<DrawerTab>,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onRestore: (DrawerTab) -> Unit
 ) {
     val shownIds = shown.map { it.id }.toSet()
-    val restorable = DrawerTab.entries.filter { it.id !in shownIds }
+    val restorable = DrawerTab.entries.filter { it.id !in shownIds && !it.mandatory }
+    if (restorable.isEmpty()) return
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(RestoreTabsAreaHeight)
-            .holdToReveal { onExpandedChange(true) }
+            .padding(horizontal = 20.dp, vertical = 4.dp)
     ) {
+        Surface(
+            onClick = { onExpandedChange(true) },
+            shape = RoundedCornerShape(30.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .holdToReveal { onExpandedChange(true) }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Add tab",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         DropdownMenuPopup(
             expanded = expanded,
             onDismissRequest = { onExpandedChange(false) }
@@ -722,20 +772,12 @@ private fun RestoreTabsArea(
             DropdownMenuGroup(
                 shapes = MenuDefaults.groupShape(index = 0, count = 1)
             ) {
-                if (restorable.isEmpty()) {
+                restorable.forEach { tab ->
                     DropdownMenuItem(
-                        text = { Text("All tabs are shown") },
-                        enabled = false,
-                        onClick = {}
+                        text = { Text("Add ${tab.title}") },
+                        trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
+                        onClick = { onRestore(tab) }
                     )
-                } else {
-                    restorable.forEach { tab ->
-                        DropdownMenuItem(
-                            text = { Text("Add ${tab.title}") },
-                            trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
-                            onClick = { onRestore(tab) }
-                        )
-                    }
                 }
             }
         }
