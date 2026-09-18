@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.SdStorage
@@ -82,6 +83,7 @@ import com.kerneldroid.karchiver.presentation.settings.SettingsFilesScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsSearchScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsStorageScreen
+import com.kerneldroid.karchiver.presentation.trash.TrashScreen
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -89,6 +91,7 @@ private object RootRoute {
     const val BROWSER = "browser"
     const val HOME = "home"
     const val HISTORY = "history"
+    const val TRASH = "trash"
     const val SETTINGS = "settings"
 }
 
@@ -181,12 +184,15 @@ fun KArchiverRoot() {
     val safAutoFallback by vm.safAutoFallback.collectAsStateWithLifecycle()
     val favorites by settingsRepo.favorites.collectAsStateWithLifecycle(initialValue = emptySet())
 
-    val destinations = remember {
-        listOf(
-            DrawerDestination(RootRoute.BROWSER, "Files", Icons.Filled.Folder),
-            DrawerDestination(RootRoute.HOME, "Home", Icons.Filled.Home),
-            DrawerDestination(RootRoute.SETTINGS, "Settings", Icons.Filled.Settings)
-        )
+    val destinations = remember(settings?.trashEnabled) {
+        buildList {
+            add(DrawerDestination(RootRoute.BROWSER, "Files", Icons.Filled.Folder))
+            add(DrawerDestination(RootRoute.HOME, "Home", Icons.Filled.Home))
+            if (settings?.trashEnabled == true) {
+                add(DrawerDestination(RootRoute.TRASH, "Trash", Icons.Filled.Delete))
+            }
+            add(DrawerDestination(RootRoute.SETTINGS, "Settings", Icons.Filled.Settings))
+        }
     }
 
     fun openDrawer() {
@@ -254,6 +260,7 @@ fun KArchiverRoot() {
         vm.setRarWriteEnabled(s.rarWriteEnabled)
         vm.setElevationMode(s.elevationMode)
         vm.setHistoryEnabled(s.historyEnabled)
+        vm.setTrashEnabled(s.trashEnabled)
         vm.setSearchSettings(
             SearchSettings(
                 searchInContent = s.searchInContent,
@@ -417,6 +424,14 @@ fun KArchiverRoot() {
             HistoryScreen(
                 onBack = { navController.popBackStack() },
                 onOpenEntry = ::openHistoryEntry,
+                barLifted = barLifted,
+                onToggleBar = { barLifted = !barLifted }
+            )
+        }
+        composable(RootRoute.TRASH) {
+            TrashScreen(
+                onBack = { navController.popBackStack() },
+                elevationMode = settings?.elevationMode ?: "off",
                 barLifted = barLifted,
                 onToggleBar = { barLifted = !barLifted }
             )

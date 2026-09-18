@@ -26,6 +26,7 @@ data class AppSettings(
     val defaultView: String = "list",
     val foldersFirst: Boolean = true,
     val confirmDelete: Boolean = true,
+    val trashEnabled: Boolean = false,
     val rarEnabled: Boolean = false,
     val rarWriteEnabled: Boolean = false,
     val elevationMode: String = "off",
@@ -56,6 +57,7 @@ class SettingsRepository(private val appContext: Context) {
         val DEFAULT_VIEW = stringPreferencesKey("default_view")
         val FOLDERS_FIRST = booleanPreferencesKey("folders_first")
         val CONFIRM_DELETE = booleanPreferencesKey("confirm_delete")
+        val TRASH_ENABLED = booleanPreferencesKey("trash_enabled")
         val RAR_ENABLED = booleanPreferencesKey("rar_enabled")
         val ELEVATION_MODE = stringPreferencesKey("elevation_mode")
         val RAR_WRITE_ENABLED = booleanPreferencesKey("rar_write_enabled")
@@ -120,6 +122,7 @@ class SettingsRepository(private val appContext: Context) {
             defaultView = p[Keys.DEFAULT_VIEW] ?: "list",
             foldersFirst = p[Keys.FOLDERS_FIRST] ?: true,
             confirmDelete = p[Keys.CONFIRM_DELETE] ?: true,
+            trashEnabled = p[Keys.TRASH_ENABLED] ?: false,
             rarEnabled = p[Keys.RAR_ENABLED] ?: false,
             rarWriteEnabled = p[Keys.RAR_WRITE_ENABLED] ?: false,
             elevationMode = p[Keys.ELEVATION_MODE] ?: "off",
@@ -167,6 +170,9 @@ class SettingsRepository(private val appContext: Context) {
 
     suspend fun setConfirmDelete(value: Boolean) =
         appContext.dataStore.edit { it[Keys.CONFIRM_DELETE] = value }
+
+    suspend fun setTrashEnabled(value: Boolean) =
+        appContext.dataStore.edit { it[Keys.TRASH_ENABLED] = value }
 
     suspend fun setRarEnabled(value: Boolean) =
         appContext.dataStore.edit {

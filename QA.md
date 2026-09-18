@@ -4,7 +4,7 @@
 Yes. It was developed in [opencode](https://opencode.ai).
 
 **Where do I get an APK, and why does the debug signature change every build?**
-Two places: the [Releases](https://github.com/sysrv64/KArchiver/releases) page (tagged versions with both APKs, their byte sizes and SHA-256) and GitHub → Actions → the latest successful run on `main` → artifacts. `KArchiver-debug` exists for every run, `KArchiver-release` only for pushes to `main`. Debug APKs are signed with a throwaway keystore generated for that run, so a new debug APK cannot be installed over an older debug install: uninstall the previous build first. Release APKs are signed with a stable key and update normally.
+Two places: the [Releases](https://github.com/sysrv64/KArchiver/releases) page (tagged versions with the APKs, their byte sizes and SHA-256) and GitHub → Actions → the latest successful run on `main` → artifacts. `KArchiver-debug` exists for every run; `KArchiver-release` and `KArchiver-release-aab` only for pushes to `main`. Debug APKs are signed with a throwaway keystore generated for that run, so a new debug APK cannot be installed over an older debug install: uninstall the previous build first. Release APKs are signed with a stable key and update normally.
 
 **Installation fails with "APK Signature Scheme v2: SHA-256 digest of contents did not verify" or `INSTALL_PARSE_FAILED_NO_CERTIFICATES`.**
 The APK file was modified after it was built. Debug APKs are signed with v2 only, and v2 signs the whole file, so repacking, re-compression, "optimizing", an incomplete download or a copy to a failing SD card breaks it. Compare size and SHA-256 with the release entry or the run summary, re-download the artifact, extract it with a plain extractor, keep it in internal storage and install again, or use `adb install -r app-debug.apk`.
@@ -19,7 +19,7 @@ To manage files outside the folders it owns. It is optional: if you deny it, the
 Restricted paths a normal app cannot touch, for example `/Android/data` and system directories. Both are optional (Settings → Elevation). Shizuku needs the Shizuku app installed and running; root needs a working `su`.
 
 **How do I enable RAR?**
-Settings → Files → **RAR support**. It is read-only at first. To unlock creating RAR archives, press and hold the same row for 5 seconds until a haptic tick confirms; RAR packing is a deliberate speed bump because of RARLAB's licensing terms.
+Settings → Files → **RAR support**. It is read-only at first. To unlock creating RAR archives, press and hold the same row for 5 seconds until a haptic tick confirms; RAR packing is a deliberate speed bump because the library has not been well tested yet.
 
 **Which archives can be edited in place?**
 ZIP, TAR, TAR.GZ, TAR.BZ2, TAR.XZ, TAR.ZST and 7Z support adding, renaming and deleting entries. RAR and single-stream archives (`.gz`, `.bz2`, `.xz`, `.zst`, `.lz4`) are read-only.
@@ -44,6 +44,9 @@ Quote values with spaces (`content:"hello world"`). Content and archive searches
 
 **What does History store, and how do I turn it off?**
 Recent folders and opened files with type filters, kept in a local Room database in the app's private storage. Turn it off in Settings → Files → **History**; nothing is recorded while it is off and the database can be cleared from the History screen.
+
+**What does Trash do, and where do my files go?**
+It is off by default; enable Settings → Files → **Trash**. While it is on, deleting files in the browser moves them into a hidden `.karchiver-trash` folder on the same storage volume (or into the app's private storage when the location is outside a known volume) instead of erasing them, and a **Trash** tab appears in the navigation drawer. There you can restore an item to its original path, delete it forever, or empty the whole Trash. Moving to Trash needs direct access to the location (All files access, or an elevated engine); if the move fails the file is left untouched and an error is shown. Deleting entries inside an archive is always permanent.
 
 **Why is there a notification during an operation?**
 Long archive operations run in a foreground service, and Android requires a visible notification for those. It disappears when the operation finishes.

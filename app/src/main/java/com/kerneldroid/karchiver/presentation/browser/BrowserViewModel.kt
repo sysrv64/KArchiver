@@ -23,8 +23,7 @@ import com.kerneldroid.karchiver.data.RarAccessException
 import com.kerneldroid.karchiver.data.RarDisabledException
 import com.kerneldroid.karchiver.data.RarWriteLockedException
 import com.kerneldroid.karchiver.data.elevation.ElevatedFS
-import com.kerneldroid.karchiver.data.elevation.RootEngine
-import com.kerneldroid.karchiver.data.elevation.ShizukuEngine
+import com.kerneldroid.karchiver.data.elevation.elevationEngineFor
 import com.kerneldroid.karchiver.data.history.HistoryRepository
 import com.kerneldroid.karchiver.data.isRarArchive
 import com.kerneldroid.karchiver.data.normalizeArchiveName
@@ -47,6 +46,7 @@ import com.kerneldroid.karchiver.data.storage.SafBridge
 import com.kerneldroid.karchiver.data.storage.SafGrants
 import com.kerneldroid.karchiver.data.storage.VolumeMonitor
 import com.kerneldroid.karchiver.data.storage.loadAppVolumes
+import com.kerneldroid.karchiver.data.trash.TrashRepository
 import com.kerneldroid.karchiver.presentation.storage.deepestVolumeFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -120,6 +120,7 @@ data class BrowserUiState(
     val foldersFirst: Boolean = true,
     val rarEnabled: Boolean = false,
     val rarWriteEnabled: Boolean = false,
+    val trashEnabled: Boolean = false,
     val elevationMode: String = "off",
     val isLoading: Boolean = false,
     val isSelectionMode: Boolean = false,
@@ -330,6 +331,7 @@ class BrowserViewModel(
     private var appCtx: Context? = null
     private var safHelper: SafGrants? = null
     private var historyRepo: HistoryRepository? = null
+    private var trashRepo: TrashRepository? = null
     private var historyEnabled = true
 
     private val _safGrants = MutableStateFlow<Map<String, Uri>>(emptyMap())
@@ -360,6 +362,7 @@ class BrowserViewModel(
         val ctx = appContext.applicationContext ?: appContext
         appCtx = ctx
         historyRepo = HistoryRepository.get(ctx)
+        trashRepo = TrashRepository.get(ctx)
         if (repo.tempDir == null) {
             runCatching { repo.tempDir = ctx.cacheDir }
         }
@@ -474,11 +477,7 @@ class BrowserViewModel(
         repo.tempDir = dir
     }
 
-    private fun elevationEngine(): ElevatedFS? = when (_state.value.elevationMode) {
-        "shizuku" -> ShizukuEngine
-        "root" -> RootEngine
-        else -> null
-    }
+    private fun elevationEngine(): ElevatedFS? = elevationEngineFor(_state.value.elevationMode)
 
     fun setRarEnabled(value: Boolean) {
         if (_state.value.rarEnabled == value) return
@@ -583,6 +582,11 @@ class BrowserViewModel(
 
     fun setHistoryEnabled(value: Boolean) {
         historyEnabled = value
+    }
+
+    fun setTrashEnabled(value: Boolean) {
+        if (_state.value.trashEnabled == value) return
+        _state.value = _state.value.copy(trashEnabled = value)
     }
 
     fun navigateTo(dir: File) {
@@ -782,7 +786,17 @@ class BrowserViewModel(
     fun deleteSelection(onDone: (Result<Unit>) -> Unit = {}) {
         val files = selectedFiles(); if (files.isEmpty()) return
         viewModelScope.launch {
-            val r = repo.delete(files, elevationEngine())
+            val trash = trashRepo
+            val r = if (_state.value.trashEnabled && trash != null) {
+                val report = trash.trash(files, elevationEngine())
+                if (report.isComplete) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("Could not move to Trash: " + report.failed.joinToString(", ")))
+                }
+            } else {
+                repo.delete(files, elevationEngine())
+            }
             clearSelection(); refresh(); maybeRequestGrant(r); onDone(r)
         }
     }

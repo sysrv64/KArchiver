@@ -4,7 +4,7 @@
 
 # KArchiver
 
-Android file manager built around archives: browse storage, open archives without extracting, edit ZIP/TAR/7Z in place, and search inside files and archives. The UI is Jetpack Compose (Material 3 Expressive); all archive work is done by a Rust core over JNI. Android 8.0+ (API 26), arm64-v8a / armeabi-v7a / x86 / x86_64, no internet permission.
+Android file manager built around archives: browse storage, open archives without extracting, edit ZIP/TAR/7Z in place, and search inside files and archives. The UI is Jetpack Compose (Material 3 Expressive); all archive work is done by a Rust core over JNI. Android 8.0+ (API 26), arm64-v8a / x86_64, no internet permission.
 
 ## Features
 
@@ -14,6 +14,7 @@ Android file manager built around archives: browse storage, open archives withou
 - Long operations run in a foreground service with progress, speed, ETA, cancel and a stall watchdog.
 - Search by name, extension, date, size and type, plus `content:` for file or entry contents and `archive:` for entry names inside archives.
 - File properties: permissions, rename, and modified date with a Material 3 date picker.
+- Optional Trash: deleted files are moved aside instead of erased, with restore, delete forever and empty Trash from the drawer.
 - Optional Shizuku or root engine for restricted paths, SAF fallback when All files access is denied.
 - Optional history of visited folders and files in a local Room database.
 
@@ -33,10 +34,10 @@ Needs JDK 17, Android SDK with `compileSdk 37` and build-tools 37.0.0, NDK 28.2.
 
 ```bash
 cargo install cargo-ndk
-rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+rustup target add aarch64-linux-android x86_64-linux-android
 
 cd rust
-cargo ndk -t armeabi-v7a -t arm64-v8a -t x86 -t x86_64 --platform 26 -o ../app/src/main/jniLibs build --lib
+cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o ../app/src/main/jniLibs build --lib
 cd ..
 ./gradlew :app:assembleDebug
 ```
@@ -50,7 +51,7 @@ cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings && car
 
 ## CI, releases and signing
 
-`.github/workflows/build.yml` builds on pushes to `main`, on pull requests, and on demand. Debug APKs are signed with a throwaway keystore generated for every run; release APKs are built only on pushes and signed with the keystore kept in repository secrets. Signing material is read from `KARCHIVER_*` environment variables, so nothing secret is committed, and pull requests never touch it. The run summary lists the size and SHA-256 of each APK.
+`.github/workflows/build.yml` builds on pushes to `main`, on pull requests, and on demand. Debug APKs are signed with a throwaway keystore generated for every run; release APKs and app bundles (AAB) are built only on pushes and signed with the keystore kept in repository secrets. Signing material is read from `KARCHIVER_*` environment variables, so nothing secret is committed, and pull requests never touch it. The run summary lists the size and SHA-256 of each artifact.
 
 APKs are available in two places: as workflow artifacts under Actions, and attached to tagged versions on the [Releases](https://github.com/sysrv64/KArchiver/releases) page. Release entries list the file names, sizes and SHA-256 values.
 

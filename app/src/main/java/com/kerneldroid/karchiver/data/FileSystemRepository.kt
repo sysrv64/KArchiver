@@ -12,6 +12,7 @@ import com.kerneldroid.karchiver.data.elevation.ShizukuEngine
 import com.kerneldroid.karchiver.data.elevation.requireCaps
 import com.kerneldroid.karchiver.data.storage.AppVolume
 import com.kerneldroid.karchiver.data.storage.SafBridge
+import com.kerneldroid.karchiver.data.trash.TRASH_DIR_NAME
 
 data class FileItem(
     val file: File,
@@ -175,7 +176,7 @@ class FileSystemRepository {
             SortBy.TYPE -> compareBy { it.extension }
         }
         val comparator = if (foldersFirst) compareBy<FileItem> { !it.isDirectory }.then(key) else key
-        val sorted = raw.sortedWith(comparator)
+        val sorted = raw.filter { it.name != TRASH_DIR_NAME }.sortedWith(comparator)
         if (ascending) sorted else sorted.reversed()
     }
 

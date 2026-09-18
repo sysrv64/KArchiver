@@ -12,8 +12,7 @@ data class ElevatedEntry(
 )
 
 interface ElevatedFS {
-    suspend fun listFiles(dir: File): List<File>?
-    suspend fun listDetailed(dir: File): List<ElevatedEntry>? {
+    suspend fun listFiles(dir: File): List<File>?    suspend fun listDetailed(dir: File): List<ElevatedEntry>? {
         return listFiles(dir)?.map { file ->
             ElevatedEntry(
                 file = file,
@@ -32,4 +31,10 @@ interface ElevatedFS {
     suspend fun openReadFd(path: String): ParcelFileDescriptor? = null
     suspend fun openWriteFd(path: String): ParcelFileDescriptor? = null
     suspend fun copyInto(src: File, dst: File): Boolean = false
+}
+
+fun elevationEngineFor(mode: String): ElevatedFS? = when (mode) {
+    "shizuku" -> ShizukuEngine
+    "root" -> RootEngine
+    else -> null
 }

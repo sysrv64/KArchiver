@@ -451,7 +451,15 @@ fun BrowserScreen(
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         if (confirmDelete) showDeleteConfirm = true
                         else vm.deleteSelection { r ->
-                            scope.launch { snackbar.showSnackbar(if (r.isSuccess) "Deleted" else "Delete failed") }
+                            scope.launch {
+                                snackbar.showSnackbar(
+                                    if (r.isSuccess) {
+                                        if (vm.state.value.trashEnabled) "Moved to Trash" else "Deleted"
+                                    } else {
+                                        r.exceptionOrNull()?.message ?: "Delete failed"
+                                    }
+                                )
+                            }
                         }
                     },
                     onCompress = { showCompressDialog = true },
@@ -637,17 +645,37 @@ fun BrowserScreen(
 
     if (showDeleteConfirm) {
         val count = state.selected.size
+        val trash = state.trashEnabled
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text(if (count == 1) "Delete 1 item?" else "Delete $count items?") },
-            text = { Text("This cannot be undone.") },
+            title = {
+                Text(
+                    when {
+                        trash && count == 1 -> "Move 1 item to Trash?"
+                        trash -> "Move $count items to Trash?"
+                        count == 1 -> "Delete 1 item?"
+                        else -> "Delete $count items?"
+                    }
+                )
+            },
+            text = {
+                Text(if (trash) "You can restore them from Trash later." else "This cannot be undone.")
+            },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
                     vm.deleteSelection { r ->
-                        scope.launch { snackbar.showSnackbar(if (r.isSuccess) "Deleted" else "Delete failed") }
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                if (r.isSuccess) {
+                                    if (trash) "Moved to Trash" else "Deleted"
+                                } else {
+                                    r.exceptionOrNull()?.message ?: "Delete failed"
+                                }
+                            )
+                        }
                     }
-                }) { Text("Delete") }
+                }) { Text(if (trash) "Move" else "Delete") }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
