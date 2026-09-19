@@ -1,7 +1,7 @@
 package com.kerneldroid.karchiver.presentation.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,14 +24,15 @@ fun CustomNavigationDrawerItem(
     onSelected: () -> Unit,
     icon: ImageVector,
     text: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = modifier
             .padding(horizontal = 20.dp, vertical = 2.dp)
             .height(56.dp)
             .clip(RoundedCornerShape(30.dp))
-            .clickable(onClick = onSelected)
+            .combinedClickable(onClick = onSelected, onLongClick = onLongClick)
             .background(
                 if (selected) MaterialTheme.colorScheme.secondaryContainer
                 else Color.Transparent

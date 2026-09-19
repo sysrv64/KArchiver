@@ -70,14 +70,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -120,7 +117,6 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlin.math.roundToInt
 
 private object RootRoute {
     const val BROWSER = "browser"
@@ -263,7 +259,6 @@ fun KArchiverRoot() {
     }
     var tabMenuId by remember { mutableStateOf<String?>(null) }
     var emptyMenu by remember { mutableStateOf(false) }
-    var restorePress by remember { mutableStateOf<IntOffset?>(null) }
     var sheetCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val tabCoords = remember { mutableMapOf<String, LayoutCoordinates>() }
 
@@ -406,79 +401,65 @@ fun KArchiverRoot() {
                                     }
                                 ) return@awaitEachGesture
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                restorePress = IntOffset(
-                                    down.position.x.roundToInt(),
-                                    down.position.y.roundToInt()
-                                )
                                 emptyMenu = true
                             }
                         }
                 ) {
                     Spacer(modifier = Modifier.height(30.dp))
-                    ReorderableColumn(
-                        items = drawerTabs,
-                        itemKey = { it.id },
-                        itemHeight = DrawerTabHeight,
-                        itemSpacing = DrawerTabSpacing,
-                        onMove = { from, to ->
-                            if (from in drawerTabs.indices && to in drawerTabs.indices) {
-                                val moved = drawerTabs.removeAt(from)
-                                drawerTabs.add(to, moved)
-                                drawerScope.launch { settingsRepo.setDrawerTabs(drawerTabs.map { it.id }) }
-                            }
-                        },
-                        onHoldStill = { tab -> tabMenuId = tab.id },
-                        onDragMoveStarted = { tabMenuId = null }
-                    ) { tab, _, _ ->
-                        DrawerTabRow(
-                            tab = tab,
-                            selected = currentRoute == tab.route,
-                            onSelected = { selectDestination(tab.route) },
-                            menuExpanded = tabMenuId == tab.id,
-                            onMenuDismiss = { tabMenuId = null },
-                            onPositioned = { coords -> tabCoords[tab.id] = coords },
-                            onRemove = {
-                                tabMenuId = null
-                                tabCoords.remove(tab.id)
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                drawerTabs.removeAll { it.id == tab.id }
-                                drawerScope.launch { settingsRepo.setDrawerTabs(drawerTabs.map { it.id }) }
-                            }
-                        )
-                    }
-                    restorePress?.let { press ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .placeAt(press)
-                        ) {
-                            DropdownMenuPopup(
-                                expanded = emptyMenu,
-                                onDismissRequest = {
-                                    emptyMenu = false
-                                    restorePress = null
+                    Box(Modifier.fillMaxWidth()) {
+                        ReorderableColumn(
+                            items = drawerTabs,
+                            itemKey = { it.id },
+                            itemHeight = DrawerTabHeight,
+                            itemSpacing = DrawerTabSpacing,
+                            onMove = { from, to ->
+                                if (from in drawerTabs.indices && to in drawerTabs.indices) {
+                                    val moved = drawerTabs.removeAt(from)
+                                    drawerTabs.add(to, moved)
+                                    drawerScope.launch { settingsRepo.setDrawerTabs(drawerTabs.map { it.id }) }
                                 }
+                            },
+                            onDragMoveStarted = { tabMenuId = null }
+                        ) { tab, _, _ ->
+                            DrawerTabRow(
+                                tab = tab,
+                                selected = currentRoute == tab.route,
+                                onSelected = { selectDestination(tab.route) },
+                                onLongClick = { tabMenuId = tab.id },
+                                menuExpanded = tabMenuId == tab.id,
+                                onMenuDismiss = { tabMenuId = null },
+                                onPositioned = { coords -> tabCoords[tab.id] = coords },
+                                onRemove = {
+                                    tabMenuId = null
+                                    tabCoords.remove(tab.id)
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    drawerTabs.removeAll { it.id == tab.id }
+                                    drawerScope.launch { settingsRepo.setDrawerTabs(drawerTabs.map { it.id }) }
+                                }
+                            )
+                        }
+                        DropdownMenuPopup(
+                            expanded = emptyMenu && restorable.isNotEmpty(),
+                            onDismissRequest = { emptyMenu = false }
+                        ) {
+                            DropdownMenuGroup(
+                                shapes = MenuDefaults.groupShape(index = 0, count = 1)
                             ) {
-                                DropdownMenuGroup(
-                                    shapes = MenuDefaults.groupShape(index = 0, count = 1)
-                                ) {
-                                    restorable.forEach { tab ->
-                                        DropdownMenuItem(
-                                            text = { Text("Add ${tab.title}") },
-                                            trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
-                                            onClick = {
-                                                emptyMenu = false
-                                                restorePress = null
-                                                haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                                if (drawerTabs.none { it.id == tab.id }) {
-                                                    val ids = insertDrawerTab(drawerTabs.map { it.id }, tab.id)
-                                                    drawerTabs.clear()
-                                                    drawerTabs.addAll(ids.mapNotNull { DrawerTab.fromId(it) })
-                                                    drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
-                                                }
+                                restorable.forEach { tab ->
+                                    DropdownMenuItem(
+                                        text = { Text("Add ${tab.title}") },
+                                        trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
+                                        onClick = {
+                                            emptyMenu = false
+                                            haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                            if (drawerTabs.none { it.id == tab.id }) {
+                                                val ids = insertDrawerTab(drawerTabs.map { it.id }, tab.id)
+                                                drawerTabs.clear()
+                                                drawerTabs.addAll(ids.mapNotNull { DrawerTab.fromId(it) })
+                                                drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
                                             }
-                                        )
-                                    }
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -768,6 +749,7 @@ private fun DrawerTabRow(
     tab: DrawerTab,
     selected: Boolean,
     onSelected: () -> Unit,
+    onLongClick: () -> Unit,
     menuExpanded: Boolean,
     onMenuDismiss: () -> Unit,
     onPositioned: (LayoutCoordinates) -> Unit,
@@ -781,6 +763,7 @@ private fun DrawerTabRow(
         CustomNavigationDrawerItem(
             selected = selected,
             onSelected = onSelected,
+            onLongClick = onLongClick,
             icon = tab.icon,
             text = tab.title
         )
@@ -804,7 +787,4 @@ private fun DrawerTabRow(
     }
 }
 
-private fun Modifier.placeAt(position: IntOffset) = layout { measurable, constraints ->
-    val placeable = measurable.measure(Constraints.fixed(1, 1))
-    layout(1, 1) { placeable.place(position) }
-}
+

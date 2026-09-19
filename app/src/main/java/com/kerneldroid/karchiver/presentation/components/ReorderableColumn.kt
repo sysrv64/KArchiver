@@ -7,11 +7,16 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -42,15 +48,29 @@ const val HoldToMenuMillis = 1600L
 private val DragSlop = 6.dp
 
 @Composable
+fun ReorderDragHandle() {
+    Box(
+        modifier = Modifier.size(width = 48.dp, height = 56.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Filled.DragHandle,
+            null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
 fun <T> ReorderableColumn(
     items: List<T>,
     itemKey: (T) -> Any,
     onMove: (fromIndex: Int, toIndex: Int) -> Unit,
-    onHoldStill: (item: T) -> Unit,
     itemHeight: Dp,
     itemSpacing: Dp,
     modifier: Modifier = Modifier,
     onDragMoveStarted: () -> Unit = {},
+    dragHandle: @Composable () -> Unit = { ReorderDragHandle() },
     content: @Composable ColumnScope.(item: T, index: Int, isDragging: Boolean) -> Unit
 ) {
     val haptics = LocalHapticFeedback.current
@@ -102,7 +122,7 @@ fun <T> ReorderableColumn(
             }
 
             key(itemKey(item)) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .zIndex(if (isDragging) 2f else 0f)
@@ -115,16 +135,14 @@ fun <T> ReorderableColumn(
                             translationY = translation
                             scaleX = scale
                             scaleY = scale
-                        }
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onLongPress = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onHoldStill(item)
-                                }
-                            )
-                        }
-                        .pointerInput(items.size) {
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        content(item, index, isDragging)
+                    }
+                    Box(
+                        modifier = Modifier.pointerInput(items.size) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
                                     settling = false
@@ -178,8 +196,9 @@ fun <T> ReorderableColumn(
                                 }
                             )
                         }
-                ) {
-                    content(item, index, isDragging)
+                    ) {
+                        dragHandle()
+                    }
                 }
             }
         }
