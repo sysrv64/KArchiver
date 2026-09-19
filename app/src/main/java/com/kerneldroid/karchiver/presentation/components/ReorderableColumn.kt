@@ -14,9 +14,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,23 +40,7 @@ import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-const val HoldToMenuMillis = 1600L
-
 private val DragSlop = 6.dp
-
-@Composable
-fun ReorderDragHandle() {
-    Box(
-        modifier = Modifier.size(width = 48.dp, height = 56.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            Icons.Filled.DragHandle,
-            null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
 
 @Composable
 fun <T> ReorderableColumn(
@@ -70,7 +51,7 @@ fun <T> ReorderableColumn(
     itemSpacing: Dp,
     modifier: Modifier = Modifier,
     onDragMoveStarted: () -> Unit = {},
-    dragHandle: @Composable () -> Unit = { ReorderDragHandle() },
+    dragHandle: @Composable () -> Unit = { Box(Modifier.size(width = 48.dp, height = 56.dp)) },
     content: @Composable ColumnScope.(item: T, index: Int, isDragging: Boolean) -> Unit
 ) {
     val haptics = LocalHapticFeedback.current
@@ -142,7 +123,7 @@ fun <T> ReorderableColumn(
                         content(item, index, isDragging)
                     }
                     Box(
-                        modifier = Modifier.pointerInput(items.size) {
+                        modifier = Modifier.pointerInput(index) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
                                     settling = false

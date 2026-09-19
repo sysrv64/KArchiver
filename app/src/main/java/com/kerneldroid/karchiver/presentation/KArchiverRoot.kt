@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -97,7 +98,6 @@ import com.kerneldroid.karchiver.presentation.browser.BrowserViewModel
 import com.kerneldroid.karchiver.presentation.browser.SearchSettings
 import com.kerneldroid.karchiver.presentation.browser.ViewMode
 import com.kerneldroid.karchiver.presentation.components.CustomNavigationDrawerItem
-import com.kerneldroid.karchiver.presentation.components.HoldToMenuMillis
 import com.kerneldroid.karchiver.presentation.components.ReorderableColumn
 import com.kerneldroid.karchiver.presentation.home.HomeScreen
 import com.kerneldroid.karchiver.presentation.history.HistoryScreen
@@ -377,23 +377,22 @@ fun KArchiverRoot() {
             ModalDrawerSheet(modifier = Modifier.widthIn(max = DrawerSheetWidth)) {
                 val shownIds = drawerTabs.map { it.id }.toSet()
                 val restorable = DrawerTab.entries.filter { it.id !in shownIds && !it.mandatory }
-                val currentRestorable by rememberUpdatedState(restorable)
+                val pressTimeout = LocalViewConfiguration.current.longPressTimeoutMillis
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState())
                         .onGloballyPositioned { sheetCoords = it }
-                        .pointerInput(Unit) {
+                        .pointerInput(pressTimeout) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 val held = try {
-                                    withTimeout(HoldToMenuMillis) { waitForUpOrCancellation() }
+                                    withTimeout(pressTimeout) { waitForUpOrCancellation() }
                                     false
                                 } catch (_: TimeoutCancellationException) {
                                     true
                                 }
                                 if (!held) return@awaitEachGesture
-                                if (currentRestorable.isEmpty()) return@awaitEachGesture
                                 val sheet = sheetCoords ?: return@awaitEachGesture
                                 if (tabCoords.values.any { coords ->
                                         runCatching { sheet.localBoundingBoxOf(coords).contains(down.position) }
@@ -439,12 +438,19 @@ fun KArchiverRoot() {
                             )
                         }
                         DropdownMenuPopup(
-                            expanded = emptyMenu && restorable.isNotEmpty(),
+                            expanded = emptyMenu,
                             onDismissRequest = { emptyMenu = false }
                         ) {
                             DropdownMenuGroup(
                                 shapes = MenuDefaults.groupShape(index = 0, count = 1)
                             ) {
+                                if (restorable.isEmpty()) {
+                                    DropdownMenuItem(
+                                        text = { Text("All tabs are shown") },
+                                        enabled = false,
+                                        onClick = {}
+                                    )
+                                }
                                 restorable.forEach { tab ->
                                     DropdownMenuItem(
                                         text = { Text("Add ${tab.title}") },
