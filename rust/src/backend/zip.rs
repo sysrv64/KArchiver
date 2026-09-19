@@ -113,7 +113,8 @@ fn resolve_classic(dir: &Path, base: &str) -> Result<Option<Vec<PathBuf>>> {
         if w[1] != w[0] + 1 {
             return Err(ArchiveError::invalid(format!(
                 "missing split segment: {}",
-                dir.join(format!("{base}.z{:02}", w[0] + 1)).display()
+                dir.join(format!("{base}.z{:02}", w[0].saturating_add(1)))
+                    .display()
             )));
         }
     }
@@ -160,7 +161,8 @@ fn resolve_dotted(dir: &Path, base: &str) -> Result<Option<Vec<PathBuf>>> {
         if w[1] != w[0] + 1 {
             return Err(ArchiveError::invalid(format!(
                 "missing split segment: {}",
-                dir.join(format!("{base}.{:03}", w[0] + 1)).display()
+                dir.join(format!("{base}.{:03}", w[0].saturating_add(1)))
+                    .display()
             )));
         }
     }
@@ -499,6 +501,7 @@ fn extract_entries<R: Read + Seek>(
         }
 
         if entry.is_dir() {
+            state.begin_entry(&name, Some(0))?;
             match safe_join(dest_root, &name)
                 .and_then(|out| create_dir_all_checked(dest_root, &out))
             {
@@ -510,6 +513,7 @@ fn extract_entries<R: Read + Seek>(
         }
 
         if entry.is_symlink() {
+            state.begin_entry(&name, Some(0))?;
             match extract_symlink(&mut entry, &name, dest_root) {
                 Ok(()) => {}
                 Err(e) if e.is_fatal() => return Err(e),
@@ -518,8 +522,16 @@ fn extract_entries<R: Read + Seek>(
             continue;
         }
 
+        let out = match safe_join(dest_root, &name) {
+            Ok(out) => out,
+            Err(e) if e.is_fatal() => return Err(e),
+            Err(e) => {
+                warnings.push(format!("{name}: {e}"));
+                continue;
+            }
+        };
+        let mut created = false;
         let result = (|| -> Result<()> {
-            let out = safe_join(dest_root, &name)?;
             let parent = out
                 .parent()
                 .ok_or_else(|| ArchiveError::invalid("entry has no parent"))?;
@@ -529,6 +541,7 @@ fn extract_entries<R: Read + Seek>(
             state.check_ratio(&name, entry.compressed_size(), declared)?;
 
             let mut writer = BufWriter::new(create_output_file(&out)?);
+            created = true;
             let allowance = state.allowance(Some(declared));
             let mut limited = LimitedReader::new(&mut entry, allowance);
             io::copy(&mut limited, &mut writer).map_err(classify_io)?;
@@ -541,7 +554,12 @@ fn extract_entries<R: Read + Seek>(
         match result {
             Ok(()) => {}
             Err(e) if e.is_fatal() => return Err(e),
-            Err(e) => warnings.push(format!("{name}: {e}")),
+            Err(e) => {
+                if created {
+                    let _ = std::fs::remove_file(&out);
+                }
+                warnings.push(format!("{name}: {e}"));
+            }
         }
     }
 

@@ -25,6 +25,7 @@ pub struct Scanner {
     consumed: u64,
     line: u64,
     buf: Vec<u8>,
+    start: usize,
     probe_len: usize,
     binary: bool,
     result: Option<LineMatch>,
@@ -48,6 +49,7 @@ impl Scanner {
             consumed: 0,
             line: 1,
             buf: Vec::new(),
+            start: 0,
             probe_len: 0,
             binary: false,
             result: None,
@@ -73,7 +75,7 @@ impl Scanner {
             self.done = true;
             return;
         }
-        let take = data.len().min(remaining as usize);
+        let take = (data.len() as u64).min(remaining) as usize;
         self.consumed += take as u64;
         self.buf.extend_from_slice(&data[..take]);
         self.drain_lines(false);
@@ -83,10 +85,6 @@ impl Scanner {
         if self.result.is_some() {
             self.done = true;
         }
-    }
-
-    pub fn is_binary(&self) -> bool {
-        self.binary
     }
 
     pub fn is_done(&self) -> bool {
@@ -101,47 +99,69 @@ impl Scanner {
     }
 
     fn drain_lines(&mut self, at_end: bool) {
-        while let Some(pos) = self.buf.iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = self.buf.drain(..pos).collect();
-            self.buf.drain(..1);
-            if self.match_line(&line) {
+        while let Some(rel) = self.buf[self.start..].iter().position(|b| *b == b'\n') {
+            let end = self.start + rel;
+            let line_num = self.line;
+            let matched = self.match_slice(self.start, end, line_num);
+            self.start = end + 1;
+            if matched {
                 return;
             }
             self.line += 1;
         }
         if at_end {
-            if !self.buf.is_empty() {
-                let line = std::mem::take(&mut self.buf);
-                self.match_line(&line);
+            if self.start < self.buf.len() {
+                let line_num = self.line;
+                let end = self.buf.len();
+                self.match_slice(self.start, end, line_num);
             }
-        } else if self.buf.len() > MAX_LINE {
-            let line = std::mem::take(&mut self.buf);
-            if self.match_line(&line) {
+            self.buf.clear();
+            self.start = 0;
+            return;
+        }
+        if self.buf.len() - self.start > MAX_LINE {
+            let line_num = self.line;
+            let end = self.buf.len();
+            let matched = self.match_slice(self.start, end, line_num);
+            if matched {
                 return;
             }
             let keep = self.needle.len().saturating_sub(1);
-            if line.len() > keep {
-                self.buf.extend_from_slice(&line[line.len() - keep..]);
+            if keep == 0 {
+                self.buf.clear();
             } else {
-                self.buf.extend_from_slice(&line);
+                let keep_from = self.buf.len().saturating_sub(keep);
+                self.buf.copy_within(keep_from.., 0);
+                self.buf.truncate(self.buf.len() - keep_from);
             }
+            self.start = 0;
+            return;
+        }
+        if self.start > 0 {
+            self.buf.drain(..self.start);
+            self.start = 0;
         }
     }
 
-    fn match_line(&mut self, line: &[u8]) -> bool {
-        let hay = if self.case_sensitive {
-            line.to_vec()
+    fn match_slice(&mut self, from: usize, to: usize, line_num: u64) -> bool {
+        let line = &self.buf[from..to];
+        let at = if self.case_sensitive {
+            find_subslice(line, &self.needle)
         } else {
-            line.to_ascii_lowercase()
+            let hay = line.to_ascii_lowercase();
+            find_subslice(&hay, &self.needle)
         };
-        if let Some(at) = find_subslice(&hay, &self.needle) {
-            self.result = Some(LineMatch {
-                line: self.line,
-                snippet: snippet(line, at),
-            });
-            return true;
+        match at {
+            Some(at) => {
+                let snippet = snippet(&self.buf[from..to], at);
+                self.result = Some(LineMatch {
+                    line: line_num,
+                    snippet,
+                });
+                true
+            }
+            None => false,
         }
-        false
     }
 }
 
@@ -277,7 +297,25 @@ mod tests {
     fn scanner_detects_binary_flag() {
         let mut scanner = Scanner::new("x", false, DEFAULT_MAX_BYTES).unwrap();
         scanner.feed(&[0u8, 1, 2]);
-        assert!(scanner.is_binary());
+        assert!(scanner.is_done());
         assert!(scanner.finish().is_none());
+    }
+
+    #[test]
+    fn newline_dense_input_still_matches() {
+        let mut data = vec![b'\n'; 200_000];
+        data.extend_from_slice(b"needle");
+        let mut scanner = Scanner::new("needle", false, u64::MAX).unwrap();
+        scanner.feed(&data);
+        let m = scanner.finish().unwrap();
+        assert_eq!(m.line, 200_001);
+    }
+
+    #[test]
+    fn long_single_line_without_newline_is_capped() {
+        let data = vec![b'x'; MAX_LINE * 3];
+        let mut cursor = io::Cursor::new(data);
+        let found = scan_reader(&mut cursor, "needle", false, DEFAULT_MAX_BYTES).unwrap();
+        assert!(found.is_none());
     }
 }

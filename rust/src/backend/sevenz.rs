@@ -140,6 +140,7 @@ fn compress_impl(
                 &mut batch_meta,
                 &mut state,
             )?;
+            batch_bytes = 0;
             let entry = ArchiveEntry::new_directory(&e.name);
             writer
                 .push_archive_entry::<io::Empty>(entry, None)
@@ -193,6 +194,7 @@ fn extract_entry(
     check_cancelled()?;
     let name = entry.name().to_string();
     if entry.is_directory() {
+        state.begin_entry(&name, Some(0))?;
         let out = safe_join(root, &name)?;
         create_dir_all_checked(root, &out)?;
         return Ok(());
@@ -207,14 +209,24 @@ fn extract_entry(
     reject_symlink_ancestors(root, &out)?;
 
     state.begin_entry(&name, Some(declared))?;
-    let mut writer = BufWriter::new(create_output_file(&out)?);
-    let allowance = state.allowance(Some(declared));
-    let mut limited = LimitedReader::new(data, allowance);
-    io::copy(&mut limited, &mut writer).map_err(classify_io)?;
-    writer.flush()?;
-    drop(writer);
-    set_file_mode(&out)?;
-    state.finish_entry(&name, Some(declared), limited.count())
+    let file = create_output_file(&out)?;
+    let mut partial = true;
+    let result = (|| -> Result<()> {
+        let mut writer = BufWriter::new(file);
+        let allowance = state.allowance(Some(declared));
+        let mut limited = LimitedReader::new(data, allowance);
+        io::copy(&mut limited, &mut writer).map_err(classify_io)?;
+        writer.flush()?;
+        drop(writer);
+        set_file_mode(&out)?;
+        state.finish_entry(&name, Some(declared), limited.count())?;
+        partial = false;
+        Ok(())
+    })();
+    if partial {
+        let _ = std::fs::remove_file(&out);
+    }
+    result
 }
 
 /// Extract a 7z archive into `dest`.
@@ -361,14 +373,30 @@ pub fn list_detailed_with_password(archive: &Path, password: &str) -> Result<Pre
     list_detailed_impl(archive, Some(password))
 }
 
+fn entry_is_encrypted(archive: &sevenz_rust2::Archive, index: usize) -> bool {
+    archive
+        .stream_map
+        .file_block_index
+        .get(index)
+        .and_then(|block| *block)
+        .and_then(|block| archive.blocks.get(block))
+        .is_some_and(|block| {
+            block
+                .coders
+                .iter()
+                .any(|c| c.encoder_method_id() == sevenz_rust2::EncoderMethod::ID_AES256_SHA256)
+        })
+}
+
 fn list_detailed_impl(archive: &Path, password: Option<&str>) -> Result<PreviewListing> {
     let (pw, have_password) = match password {
         Some(p) => password_of(p),
         None => (Password::empty(), false),
     };
     let reader = ArchiveReader::open(archive, pw).map_err(|e| map_open_err_pw(e, have_password))?;
-    let mut out = Vec::with_capacity(reader.archive().files.len());
-    for f in &reader.archive().files {
+    let parsed = reader.archive();
+    let mut out = Vec::with_capacity(parsed.files.len());
+    for (index, f) in parsed.files.iter().enumerate() {
         check_cancelled()?;
         let is_dir = f.is_directory();
         let modified = if f.has_last_modified_date {
@@ -383,7 +411,7 @@ fn list_detailed_impl(archive: &Path, password: Option<&str>) -> Result<PreviewL
             name: f.name().to_string(),
             size: if is_dir { 0 } else { f.size() },
             is_dir,
-            encrypted: have_password,
+            encrypted: entry_is_encrypted(parsed, index),
             modified,
             mode: 0,
         });

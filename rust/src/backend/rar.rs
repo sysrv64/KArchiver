@@ -107,6 +107,9 @@ struct Shared {
     abort: Option<ArchiveError>,
     records: Vec<EntryRecord>,
     written: HashMap<usize, u64>,
+    total_written: u64,
+    max_total: u64,
+    max_read: u64,
 }
 
 struct EntryRecord {
@@ -159,6 +162,17 @@ impl<W: Write> Write for BudgetWriter<W> {
             .entry(self.index)
             .and_modify(|v| *v = v.saturating_add(n as u64))
             .or_insert(n as u64);
+        shared.total_written = shared.total_written.saturating_add(n as u64);
+        if shared.total_written > shared.max_total {
+            let e = ArchiveError::limit(format!(
+                "total output {} exceeds limit {}",
+                shared.total_written, shared.max_total
+            ));
+            shared.abort = Some(e);
+            return Err(io::Error::other(format!(
+                "{LIMIT_MARKER}: total output exceeds limit"
+            )));
+        }
         Ok(n)
     }
 
@@ -355,7 +369,9 @@ fn extract_impl(
         let Ok(name) = sanitize_entry_name(&member.meta.name_lossy()) else {
             continue;
         };
-        ratio_state.check_ratio(&name, member.meta.packed_size, member.meta.unpacked_size)?;
+        if member.meta.packed_size > 0 {
+            ratio_state.check_ratio(&name, member.meta.packed_size, member.meta.unpacked_size)?;
+        }
         sizes
             .entry(member.meta.name.clone())
             .or_default()
@@ -363,7 +379,11 @@ fn extract_impl(
     }
     crate::io_util::progress_reset(total);
     let mut state = LimitState::new(limits);
-    let shared = Rc::new(RefCell::new(Shared::default()));
+    let shared = Rc::new(RefCell::new(Shared {
+        max_total: limits.max_total_size,
+        max_read: limits.read_budget,
+        ..Shared::default()
+    }));
     let mut warnings: Vec<String> = Vec::new();
     let mut counter: usize = 0;
 
@@ -482,7 +502,11 @@ fn open_entry(
             shared: Rc::clone(shared),
         }));
     }
-    let allowance = state.allowance(declared);
+    let used = shared.borrow().total_written;
+    let allowance = state
+        .allowance(declared)
+        .min(shared.borrow().max_total.saturating_sub(used))
+        .min(shared.borrow().max_read.saturating_sub(used));
     let file = match create_output_file(&out) {
         Ok(f) => f,
         Err(e) => {

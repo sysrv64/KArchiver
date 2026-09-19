@@ -193,12 +193,14 @@ fn extract_entry<R: Read>(
     }
 
     if entry_type == EntryType::Directory {
+        state.begin_entry(&name, Some(0))?;
         let out = safe_join(root, &name)?;
         create_dir_all_checked(root, &out)?;
         return Ok(());
     }
 
     if entry_type == EntryType::Symlink {
+        state.begin_entry(&name, Some(0))?;
         let out = safe_join(root, &name)?;
         let parent = out
             .parent()
@@ -219,6 +221,7 @@ fn extract_entry<R: Read>(
     }
 
     if entry_type == EntryType::Link {
+        state.begin_entry(&name, Some(0))?;
         let out = safe_join(root, &name)?;
         let parent = out
             .parent()
@@ -249,14 +252,24 @@ fn extract_entry<R: Read>(
     reject_symlink_ancestors(root, &out)?;
 
     state.begin_entry(&name, Some(declared))?;
-    let mut writer = BufWriter::new(create_output_file(&out)?);
-    let allowance = state.allowance(Some(declared));
-    let mut limited = LimitedReader::new(entry, allowance);
-    io::copy(&mut limited, &mut writer).map_err(classify_io)?;
-    writer.flush()?;
-    drop(writer);
-    set_file_mode(&out)?;
-    state.finish_entry(&name, Some(declared), limited.count())
+    let file = create_output_file(&out)?;
+    let mut partial = true;
+    let result = (|| -> Result<()> {
+        let mut writer = BufWriter::new(file);
+        let allowance = state.allowance(Some(declared));
+        let mut limited = LimitedReader::new(entry, allowance);
+        io::copy(&mut limited, &mut writer).map_err(classify_io)?;
+        writer.flush()?;
+        drop(writer);
+        set_file_mode(&out)?;
+        state.finish_entry(&name, Some(declared), limited.count())?;
+        partial = false;
+        Ok(())
+    })();
+    if partial {
+        let _ = std::fs::remove_file(&out);
+    }
+    result
 }
 
 /// Extract a tar (or wrapped tar) into `dest`.
@@ -666,11 +679,14 @@ struct StagedTar {
     data: Vec<u8>,
 }
 
-fn read_all_tar(archive: &Path, format: Format) -> Result<Vec<StagedTar>> {
+const STAGED_TAR_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+fn read_all_tar(archive: &Path, format: Format, limits: &Limits) -> Result<Vec<StagedTar>> {
     let reader = open_tar_reader(archive, format)?;
     let mut tar = Archive::new(reader);
     let mut out = Vec::new();
-    let limits = Limits::default();
+    let mut state = LimitState::new(limits);
+    let mut staged_bytes: u64 = 0;
     for entry in tar.entries().map_err(ArchiveError::backend)? {
         check_cancelled()?;
         let mut entry = entry.map_err(ArchiveError::backend)?;
@@ -680,12 +696,19 @@ fn read_all_tar(archive: &Path, format: Format) -> Result<Vec<StagedTar>> {
             .map_err(ArchiveError::backend)?;
         let header = entry.header().clone();
         let et = header.entry_type();
+        state.begin_entry(&name, Some(0))?;
         let mut data = Vec::new();
         if et.is_file() {
             let declared = entry.size();
             if declared > limits.max_entry_size {
                 return Err(ArchiveError::limit(format!(
                     "entry '{name}' exceeds per-entry limit"
+                )));
+            }
+            staged_bytes = staged_bytes.saturating_add(declared);
+            if staged_bytes > STAGED_TAR_MAX_BYTES {
+                return Err(ArchiveError::limit(format!(
+                    "staged tar data exceeds {STAGED_TAR_MAX_BYTES} bytes"
                 )));
             }
             let allowance = limits.max_entry_size.min(declared.saturating_add(1));
@@ -821,7 +844,7 @@ pub fn delete_entries(archive: &Path, format: Format, names: &[String]) -> Resul
     if targets.is_empty() {
         return Ok(());
     }
-    let all = read_all_tar(archive, format)?;
+    let all = read_all_tar(archive, format, &Limits::default())?;
     progress_reset(all.len() as u64);
     let kept: Vec<StagedTar> = all
         .into_iter()
@@ -848,7 +871,7 @@ pub fn rename_entry(archive: &Path, format: Format, from: &str, to: &str) -> Res
             "cannot rename '{from_s}' onto '{to_s}'"
         )));
     }
-    let all = read_all_tar(archive, format)?;
+    let all = read_all_tar(archive, format, &Limits::default())?;
     let mut found = false;
     for s in &all {
         if tar_matches(&s.name, &from_s) {
@@ -908,7 +931,7 @@ pub fn add_files(
     dest_dir: &str,
 ) -> Result<()> {
     let additions = collect_tar_add_sources(sources, dest_dir)?;
-    let all = read_all_tar(archive, format)?;
+    let all = read_all_tar(archive, format, &Limits::default())?;
     let add_set: std::collections::HashSet<String> =
         additions.iter().map(|a| trim_tar_name(&a.name)).collect();
     progress_reset((all.len() + additions.len()) as u64);
@@ -935,7 +958,7 @@ pub fn set_entry_meta(
     if target.is_empty() {
         return Err(ArchiveError::invalid("empty entry name"));
     }
-    let mut all = read_all_tar(archive, format)?;
+    let mut all = read_all_tar(archive, format, &Limits::default())?;
     let mut found = false;
     for s in &mut all {
         check_cancelled()?;
@@ -1090,5 +1113,17 @@ mod edit_tests {
         let r =
             crate::backend::extract_filtered(&archive, Format::Tar, &["../evil".to_string()], &out);
         assert!(matches!(r, Err(ArchiveError::Invalid(_))));
+    }
+
+    #[test]
+    fn read_all_tar_enforces_entry_limit() {
+        let dir = tempdir().unwrap();
+        let archive = make_tar(dir.path());
+        let limits = Limits {
+            max_entries: 1,
+            ..Default::default()
+        };
+        let r = read_all_tar(&archive, Format::Tar, &limits);
+        assert!(r.is_err(), "staging must respect max_entries");
     }
 }

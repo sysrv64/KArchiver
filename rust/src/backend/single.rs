@@ -144,13 +144,19 @@ pub fn extract(archive: &Path, dest: &Path, format: Format, limits: &Limits) -> 
     let allowance = state.allowance(None);
     let reader = open_decoder(archive, format)?;
     let mut limited = LimitedReader::new(reader, allowance);
-    let mut writer = BufWriter::new(create_output_file(&out)?);
-    io::copy(&mut limited, &mut writer).map_err(classify_io)?;
-    writer.flush()?;
-    drop(writer);
-    set_file_mode(&out)?;
-    state.finish_entry(&name, None, limited.count())?;
-    Ok(())
+    let file = create_output_file(&out)?;
+    let result = (|| -> Result<()> {
+        let mut writer = BufWriter::new(file);
+        io::copy(&mut limited, &mut writer).map_err(classify_io)?;
+        writer.flush()?;
+        drop(writer);
+        set_file_mode(&out)?;
+        state.finish_entry(&name, None, limited.count())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&out);
+    }
+    result
 }
 
 pub fn extract_filtered(

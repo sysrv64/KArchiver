@@ -9,7 +9,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::error::{ArchiveError, CANCEL_MARKER, LIMIT_MARKER, Result, classify_io};
+use crate::error::{ArchiveError, CANCEL_MARKER, LIMIT_MARKER, Result};
 
 /// Permissions applied to extracted regular files (suid/sgid/sticky stripped).
 pub const FILE_MODE: u32 = 0o644;
@@ -175,7 +175,7 @@ impl LimitState {
     /// Reject obviously impossible compression ratios (zip-bomb guard).
     pub fn check_ratio(&self, name: &str, compressed: u64, uncompressed: u64) -> Result<()> {
         const FLOOR: u64 = 1024 * 1024;
-        if uncompressed <= FLOOR {
+        if uncompressed <= FLOOR || compressed == 0 {
             return Ok(());
         }
         let ratio = uncompressed.checked_div(compressed).unwrap_or(u64::MAX);
@@ -282,7 +282,7 @@ impl<R: Read> Read for LimitedReader<R> {
                 Err(e) => Err(e),
             };
         }
-        let cap = buf.len().min(self.remaining as usize);
+        let cap = (buf.len() as u64).min(self.remaining) as usize;
         let n = self.inner.read(&mut buf[..cap])?;
         self.remaining -= n as u64;
         self.count += n as u64;
@@ -296,6 +296,11 @@ impl<R: Read> Read for LimitedReader<R> {
 /// Rejects NUL bytes, Windows drive letters / colons, absolute paths, `..`
 /// components and any non-`Normal` component. Backslashes are normalised to
 /// `/` so Windows-style archives cannot smuggle traversal on Unix.
+fn has_windows_drive_prefix(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
 pub fn sanitize_entry_name(raw: &str) -> Result<String> {
     if raw.is_empty() {
         return Err(ArchiveError::invalid("empty entry name"));
@@ -304,8 +309,8 @@ pub fn sanitize_entry_name(raw: &str) -> Result<String> {
     if normalized.as_bytes().contains(&0) {
         return Err(ArchiveError::security("NUL byte in entry name"));
     }
-    if normalized.contains(':') {
-        return Err(ArchiveError::security("drive letter / colon in entry name"));
+    if has_windows_drive_prefix(&normalized) {
+        return Err(ArchiveError::security("drive letter in entry name"));
     }
     let mut clean = PathBuf::new();
     for component in Path::new(&normalized).components() {
@@ -543,6 +548,9 @@ impl AtomicFile {
 
     /// Atomically move the temp file over the destination.
     pub fn commit(mut self) -> Result<()> {
+        if let Ok(file) = File::options().write(true).open(&self.tmp) {
+            file.sync_all()?;
+        }
         fs::rename(&self.tmp, &self.dest)?;
         self.committed = true;
         Ok(())
@@ -571,17 +579,6 @@ pub fn read_head(path: &Path) -> Result<Vec<u8>> {
     let mut head = Vec::with_capacity(HEAD_BYTES);
     file.take(HEAD_BYTES as u64).read_to_end(&mut head)?;
     Ok(head)
-}
-
-/// Copy a bounded stream into a writer, mapping budget errors correctly.
-pub fn copy_limited<R: Read, W: io::Write>(
-    reader: R,
-    writer: &mut W,
-    allowance: u64,
-) -> Result<LimitedReader<R>> {
-    let mut limited = LimitedReader::new(reader, allowance);
-    io::copy(&mut limited, writer).map_err(classify_io)?;
-    Ok(limited)
 }
 
 /// Print a non-fatal warning (visible in logcat via stderr).
@@ -657,6 +654,38 @@ mod tests {
     }
 
     #[test]
+    fn safe_join_rejects_leading_drive_only() {
+        assert!(matches!(
+            safe_join(&root(), "c:relative"),
+            Err(ArchiveError::Security(_))
+        ));
+        assert!(matches!(
+            safe_join(&root(), "\\\\server\\share"),
+            Err(ArchiveError::Security(_))
+        ));
+    }
+
+    #[test]
+    fn safe_join_accepts_colons_in_names() {
+        assert_eq!(
+            safe_join(&root(), "notes:2024.txt").unwrap(),
+            root().join("notes:2024.txt")
+        );
+        assert_eq!(
+            safe_join(&root(), "dir/a:b:c").unwrap(),
+            root().join("dir/a:b:c")
+        );
+    }
+
+    #[test]
+    fn check_ratio_ignores_unknown_compressed_size() {
+        let state = LimitState::new(&Limits::default());
+        state
+            .check_ratio("solid-continuation", 0, u64::MAX)
+            .expect("zero compressed size must not look like a zip bomb");
+    }
+
+    #[test]
     fn safe_join_rejects_nul() {
         assert!(matches!(
             safe_join(&root(), "a\u{0}b"),
@@ -675,7 +704,7 @@ mod tests {
         let mut r = LimitedReader::new(&data[..], 32);
         let mut out = Vec::new();
         let err = io::copy(&mut r, &mut out).unwrap_err();
-        assert!(classify_io(err).is_fatal());
+        assert!(crate::error::classify_io(err).is_fatal());
         assert_eq!(r.count(), 32);
         assert!(r.limit_hit());
     }

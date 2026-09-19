@@ -149,3 +149,29 @@ fn extraction_enforces_entry_count_limit() {
     let result = backend::extract(&archive, &out, Format::Zip, &limits);
     assert!(result.is_err(), "entry count limit should abort extraction");
 }
+
+#[test]
+fn extraction_enforces_entry_count_limit_on_directories() {
+    let dir = tempdir().unwrap();
+    let archive = dir.path().join("many_dirs.zip");
+    {
+        let file = fs::File::create(&archive).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        for i in 0..20 {
+            zip.add_directory(format!("dir{i}/"), options).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    let limits = Limits {
+        max_entries: 10,
+        ..Default::default()
+    };
+    let out = dir.path().join("out");
+    let result = backend::extract(&archive, &out, Format::Zip, &limits);
+    assert!(
+        result.is_err(),
+        "directory entries must count toward the entry limit"
+    );
+}

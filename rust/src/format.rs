@@ -187,7 +187,9 @@ pub fn detect_from(name: &str, head: &[u8]) -> Result<Format> {
     let by_magic = Format::from_magic(head);
     match (by_ext, by_magic) {
         (Some(ext), Some(magic)) => {
-            if ext == magic || ext.is_tar() {
+            if ext.is_tar() && matches!(magic, Format::Zip | Format::SevenZ | Format::Rar) {
+                Ok(magic)
+            } else if ext == magic || ext.is_tar() {
                 Ok(ext)
             } else {
                 Ok(magic)
@@ -252,6 +254,27 @@ mod tests {
     fn magic_wins_over_wrong_extension() {
         let head = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
         assert_eq!(detect_from("fake.zip", &head).unwrap(), Format::SevenZ);
+    }
+
+    #[test]
+    fn tar_extension_does_not_override_container_magic() {
+        let zip = b"PK\x03\x04rest";
+        assert_eq!(detect_from("archive.tar", zip).unwrap(), Format::Zip);
+        assert_eq!(detect_from("archive.tar.gz", zip).unwrap(), Format::Zip);
+        assert_eq!(detect_from("archive.tgz", zip).unwrap(), Format::Zip);
+        let sevenz = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
+        assert_eq!(detect_from("archive.tar", &sevenz).unwrap(), Format::SevenZ);
+        let rar = [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00];
+        assert_eq!(detect_from("archive.tar.xz", &rar).unwrap(), Format::Rar);
+    }
+
+    #[test]
+    fn tar_variant_with_gzip_magic_uses_extension() {
+        let gzip = [0x1F, 0x8B, 0x08];
+        assert_eq!(detect_from("a.tar.gz", &gzip).unwrap(), Format::TarGz);
+        assert_eq!(detect_from("a.tgz", &gzip).unwrap(), Format::TarGz);
+        assert_eq!(detect_from("a.tar.bz2", &gzip).unwrap(), Format::TarBz2);
+        assert_eq!(detect_from("a.gz", &gzip).unwrap(), Format::Gzip);
     }
 
     #[test]

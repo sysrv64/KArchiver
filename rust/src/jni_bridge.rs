@@ -46,8 +46,9 @@ fn read_sources(env: &mut JNIEnv, array: &JObjectArray) -> Result<Vec<PathBuf>> 
         if element.is_null() {
             continue;
         }
-        let text = read_string(env, &JString::from(element))?;
-        out.push(PathBuf::from(text));
+        let text = read_string(env, (&element).into());
+        let _ = env.delete_local_ref(element);
+        out.push(PathBuf::from(text?));
     }
     Ok(out)
 }
@@ -62,12 +63,14 @@ fn build_string_array<'local>(
     let array = env
         .new_object_array(items.len() as i32, &class, JObject::null())
         .map_err(|e| ArchiveError::backend(format!("new array: {e}")))?;
+    let _ = env.delete_local_ref(class);
     for (i, item) in items.iter().enumerate() {
         let element = env
             .new_string(item)
             .map_err(|e| ArchiveError::backend(format!("new string: {e}")))?;
-        env.set_object_array_element(&array, i as i32, element)
+        env.set_object_array_element(&array, i as i32, &element)
             .map_err(|e| ArchiveError::backend(format!("set element: {e}")))?;
+        let _ = env.delete_local_ref(element);
     }
     Ok(array)
 }
@@ -102,7 +105,9 @@ fn read_strings(env: &mut JNIEnv, array: &JObjectArray) -> Result<Vec<String>> {
         if element.is_null() {
             continue;
         }
-        out.push(read_string(env, &JString::from(element))?);
+        let text = read_string(env, (&element).into());
+        let _ = env.delete_local_ref(element);
+        out.push(text?);
     }
     Ok(out)
 }
@@ -214,6 +219,7 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiv
     archive_str: JString<'local>,
 ) -> JObjectArray<'local> {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<Vec<String>> {
+        clear_cancel();
         let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
         let format = format::detect(&archive)?;
         backend::list(&archive, format)
@@ -824,7 +830,13 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_searchArch
         } else {
             Some(password.as_str())
         };
-        let result = do_search(&archive, &needle, case_sensitive != 0, pw, max_bytes as u64);
+        let result = do_search(
+            &archive,
+            &needle,
+            case_sensitive != 0,
+            pw,
+            max_bytes.max(0) as u64,
+        );
         if !password.is_empty() {
             wipe_password(password);
         }
@@ -855,7 +867,13 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_searchArch
         } else {
             Some(password.as_str())
         };
-        let result = do_search(&archive, &needle, case_sensitive != 0, pw, max_bytes as u64);
+        let result = do_search(
+            &archive,
+            &needle,
+            case_sensitive != 0,
+            pw,
+            max_bytes.max(0) as u64,
+        );
         if !password.is_empty() {
             wipe_password(password);
         }

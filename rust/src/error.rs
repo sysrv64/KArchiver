@@ -12,7 +12,6 @@ use std::io;
 /// again when it surfaces as an [`io::Error`].
 pub const LIMIT_MARKER: &str = "KARCHIVER_LIMIT";
 pub const CANCEL_MARKER: &str = "KARCHIVER_CANCELLED";
-pub const PASSWORD_MARKER: &str = "password required";
 
 /// Every failure mode the engine can produce.
 #[derive(Debug, thiserror::Error)]
