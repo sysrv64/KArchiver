@@ -82,6 +82,7 @@ import com.kerneldroid.karchiver.data.insertDrawerTab
 import com.kerneldroid.karchiver.data.formatBytes
 import com.kerneldroid.karchiver.data.history.HistoryEntry
 import com.kerneldroid.karchiver.data.loadVolumeStats
+import com.kerneldroid.karchiver.data.VolumeStats
 import com.kerneldroid.karchiver.data.storage.AppVolume
 import com.kerneldroid.karchiver.data.storage.VolumeKind
 import com.kerneldroid.karchiver.presentation.browser.BrowserScreen
@@ -104,7 +105,9 @@ import com.kerneldroid.karchiver.presentation.settings.SettingsSearchScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsStorageScreen
 import com.kerneldroid.karchiver.presentation.trash.TrashScreen
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private object RootRoute {
     const val BROWSER = "browser"
@@ -439,8 +442,8 @@ fun KArchiverRoot() {
                     if (settings?.seeDevicesInUi == true && storageVolumes.isNotEmpty()) {
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 28.dp, vertical = 4.dp))
                         DrawerSectionLabel("Devices")
-                        val stats = remember(storageVolumes) {
-                            loadVolumeStats(context).associateBy { it.path }
+                        val stats by produceState(initialValue = emptyMap<String, VolumeStats>(), storageVolumes) {
+                            value = withContext(Dispatchers.IO) { loadVolumeStats(context).associateBy { it.path } }
                         }
                         storageVolumes.forEach { v ->
                             val stat = stats[v.root.absolutePath]
@@ -513,6 +516,7 @@ fun KArchiverRoot() {
                 onOpenDrawer = ::openDrawer,
                 onBack = { navController.popBackStack() },
                 recentFolders = recents,
+                appVolumes = storageVolumes,
                 historyEnabled = settings?.historyEnabled != false,
                 onOpenHistory = { navController.navigate(RootRoute.HISTORY) },
                 barLifted = barLifted,

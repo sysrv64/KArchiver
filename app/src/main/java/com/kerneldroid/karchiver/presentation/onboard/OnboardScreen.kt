@@ -1,16 +1,20 @@
 package com.kerneldroid.karchiver.presentation.onboard
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -21,6 +25,20 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun OnboardScreen(onGranted: () -> Unit) {
     val ctx = LocalContext.current
+    val legacyPermissions = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            emptyArray<String>()
+        } else if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result.values.all { it }) onGranted()
+    }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp).systemBarsPadding(),
@@ -51,13 +69,15 @@ fun OnboardScreen(onGranted: () -> Unit) {
                         try { ctx.startActivity(intent) } catch (_: Exception) {
                             ctx.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
                         }
+                    } else {
+                        permissionLauncher.launch(legacyPermissions)
                     }
                 },
                 shapes = ButtonDefaults.shapes(shape = CircleShape, pressedShape = MaterialTheme.shapes.medium),
                 modifier = Modifier.fillMaxWidth().height(56.dp)
             ) { Text("Grant access") }
             Spacer(Modifier.height(12.dp))
-            TextButton(onClick = { if (Environment.isExternalStorageManager() || Build.VERSION.SDK_INT < 30) onGranted() }) {
+            TextButton(onClick = { if (hasStoragePermission(ctx)) onGranted() }) {
                 Text("Check again")
             }
         }

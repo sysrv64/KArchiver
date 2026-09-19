@@ -53,9 +53,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -78,7 +76,6 @@ import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
 import com.kerneldroid.karchiver.presentation.components.detectBarHold
 import com.kerneldroid.karchiver.data.storage.AppVolume
 import com.kerneldroid.karchiver.data.storage.VolumeKind
-import com.kerneldroid.karchiver.data.storage.VolumeMonitor
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -94,6 +91,7 @@ fun HomeScreen(
     onOpenDrawer: () -> Unit,
     onBack: () -> Unit,
     recentFolders: List<String> = emptyList(),
+    appVolumes: List<AppVolume> = emptyList(),
     historyEnabled: Boolean = true,
     onOpenHistory: () -> Unit = {},
     barLifted: Boolean = false,
@@ -103,28 +101,30 @@ fun HomeScreen(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val entries = remember { homeEntries() }
-    val recents = remember(recentFolders, historyEnabled) {
-        recentFolders.filter { File(it).isDirectory }.take(if (historyEnabled) 3 else 5)
+    val recents by produceState(initialValue = emptyList<String>(), recentFolders, historyEnabled) {
+        value = withContext(Dispatchers.IO) {
+            recentFolders.filter { File(it).isDirectory }.take(if (historyEnabled) 3 else 5)
+        }
     }
     val volumes by produceState(initialValue = emptyList<VolumeStats>(), context) {
         value = withContext(Dispatchers.IO) { loadVolumeStats(context.applicationContext) }
     }
-    var appVolumes by remember { mutableStateOf(emptyList<AppVolume>()) }
-    val appContext = remember(context) { context.applicationContext }
-    DisposableEffect(appContext) {
-        val monitor = VolumeMonitor(appContext) { appVolumes = it }
-        monitor.start()
-        onDispose { monitor.stop() }
+    val extraVolumeStats by produceState(initialValue = emptyMap<String, VolumeStats>(), appVolumes) {
+        value = withContext(Dispatchers.IO) {
+            appVolumes.mapNotNull { volume ->
+                statOfVolume(volume.label, volume.root)?.let { it.path to it }
+            }.toMap()
+        }
     }
     val kindByPath = remember(appVolumes) {
         appVolumes.associate { it.root.absolutePath to it.kind }
     }
-    val mergedVolumes = remember(volumes, appVolumes, kindByPath) {
+    val mergedVolumes = remember(volumes, appVolumes, extraVolumeStats, kindByPath) {
         val known = volumes.map { it.path }.toSet()
-        (volumes + appVolumes
+        val extras = appVolumes
             .filter { it.root.absolutePath !in known }
-            .mapNotNull { statOfVolume(it.label, it.root) })
-            .sortedBy { kindRank(kindByPath[it.path]) }
+            .mapNotNull { extraVolumeStats[it.root.absolutePath] }
+        (volumes + extras).sortedBy { kindRank(kindByPath[it.path]) }
     }
 
     RoundedTopScaffold(

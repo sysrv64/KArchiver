@@ -4,8 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kerneldroid.karchiver.data.FileSystemRepository
 import com.kerneldroid.karchiver.data.PreviewListing
-import com.kerneldroid.karchiver.data.RAR_DISABLED_MESSAGE
-import com.kerneldroid.karchiver.data.RarAccessException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -225,7 +223,7 @@ class ArchiveExplorerViewModel(
                 _state.value = _state.value.copy(rows = rows, isLoading = false, error = null)
             },
             onFailure = { e ->
-                _state.value = _state.value.copy(isLoading = false, error = previewMessage(e))
+                _state.value = _state.value.copy(isLoading = false, error = previewArchiveError(e))
             }
         )
     }
@@ -293,17 +291,5 @@ class ArchiveExplorerViewModel(
                 mode = entryMeta?.second ?: 0
             )
         }.sortedWith(compareBy<ExplorerRow> { !it.isDir }.thenBy { it.displayName.lowercase() }.thenBy { it.displayName })
-    }
-
-    private fun previewMessage(e: Throwable): String {
-        if (e is RarAccessException) return e.message ?: RAR_DISABLED_MESSAGE
-        val msg = e.message ?: ""
-        return when {
-            msg.contains("wrong password", ignoreCase = true) -> "Wrong password"
-            msg.contains("password required", ignoreCase = true) -> "Password required"
-            msg.contains("cancel", ignoreCase = true) -> "Cancelled"
-            msg.contains("unsupported", ignoreCase = true) -> "Preview not supported for this format"
-            else -> "Could not read archive"
-        }
     }
 }

@@ -16,10 +16,6 @@ class SafBridge(private val context: Context, private val grants: SafGrants) {
         return try { !file.canRead() } catch (_: Exception) { true }
     }
 
-    fun needsWriteStaging(dir: File): Boolean {
-        return try { !dir.canWrite() } catch (_: Exception) { true }
-    }
-
     suspend fun hasGrantFor(dir: File, volumes: List<AppVolume>): Boolean {
         return try { bindingFor(dir, volumes) != null } catch (_: Exception) { false }
     }
@@ -185,10 +181,6 @@ class SafBridge(private val context: Context, private val grants: SafGrants) {
                 false
             }
         }
-
-    suspend fun readBindingFor(file: File, volumes: List<AppVolume>): Triple<AppVolume, Uri, String>? {
-        return bindingFor(file, volumes)
-    }
 
     suspend fun openReadFdFor(file: File, volumes: List<AppVolume>): android.os.ParcelFileDescriptor? =
         withContext(Dispatchers.IO) {

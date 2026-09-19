@@ -27,6 +27,7 @@ import com.kerneldroid.karchiver.data.elevation.ElevatedFS
 import com.kerneldroid.karchiver.data.elevation.elevationEngineFor
 import com.kerneldroid.karchiver.data.history.HistoryRepository
 import com.kerneldroid.karchiver.data.isRarArchive
+import com.kerneldroid.karchiver.data.nameWithoutArchiveExtension
 import com.kerneldroid.karchiver.data.normalizeArchiveName
 import com.kerneldroid.karchiver.data.PreviewListing
 import com.kerneldroid.karchiver.data.search.DeepSearch
@@ -51,11 +52,13 @@ import com.kerneldroid.karchiver.data.storage.VolumeMonitor
 import com.kerneldroid.karchiver.data.storage.loadAppVolumes
 import com.kerneldroid.karchiver.data.trash.TrashRepository
 import com.kerneldroid.karchiver.presentation.storage.deepestVolumeFor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -152,7 +155,6 @@ class BrowserViewModel(
 
     private val _verifyActive = MutableStateFlow(false)
     val verifyActive: StateFlow<Boolean> = _verifyActive
-    val archiveOpActive: StateFlow<Boolean> = _verifyActive
     val archiveOp: StateFlow<ActiveOp?> = ArchiveOpManager.active
     val progressDialogVisible = MutableStateFlow(true)
     private var pendingCompletion: ((Result<Unit>) -> Unit)? = null
@@ -196,6 +198,7 @@ class BrowserViewModel(
     val verify: StateFlow<VerifyUiState> = _verify
 
     private var previewToken = 0
+    private var verifyToken = 0
 
     private var settingsRepo: SettingsRepository? = null
     private var favoritesJob: Job? = null
@@ -205,7 +208,7 @@ class BrowserViewModel(
         favoritesJob?.cancel()
         favoritesJob = viewModelScope.launch {
             repo.favorites.collect { favs ->
-                _state.value = _state.value.copy(favorites = favs)
+                _state.update { it.copy(favorites = favs) }
             }
         }
     }
@@ -229,7 +232,7 @@ class BrowserViewModel(
                     _preview.value = ArchivePreviewUiState(file = file, listing = listing, passwordUsed = password)
                 },
                 onFailure = { e ->
-                    _preview.value = ArchivePreviewUiState(file = file, error = previewMessage(e), passwordUsed = password)
+                    _preview.value = ArchivePreviewUiState(file = file, error = previewArchiveError(e), passwordUsed = password)
                 }
             )
         }
@@ -246,6 +249,7 @@ class BrowserViewModel(
             return
         }
         recordInteraction(file)
+        val token = ++verifyToken
         _verify.value = VerifyUiState(file = file, isLoading = true, passwordUsed = password)
         viewModelScope.launch {
             _verifyActive.value = true
@@ -253,20 +257,26 @@ class BrowserViewModel(
                 val result = repo.testArchive(file, password.ifEmpty { null }, elevationEngine(), _state.value.elevationMode)
                 result.fold(
                     onSuccess = { report ->
-                        _verify.value = VerifyUiState(file = file, report = report, passwordUsed = password)
+                        if (token == verifyToken) {
+                            _verify.value = VerifyUiState(file = file, report = report, passwordUsed = password)
+                        }
                     },
                     onFailure = { e ->
-                        _verify.value = VerifyUiState(file = file, error = verifyMessage(e), passwordUsed = password)
+                        if (token == verifyToken) {
+                            _verify.value = VerifyUiState(file = file, error = verifyMessage(e), passwordUsed = password)
+                        }
                     }
                 )
             } finally {
-                _verifyActive.value = false
+                if (token == verifyToken) _verifyActive.value = false
             }
         }
     }
 
     fun closeVerify() {
+        verifyToken++
         _verify.value = VerifyUiState()
+        _verifyActive.value = false
     }
 
     private fun verifyMessage(e: Throwable): String {
@@ -277,18 +287,6 @@ class BrowserViewModel(
             msg.contains("password required", ignoreCase = true) -> "Password required"
             msg.contains("cancel", ignoreCase = true) -> "Cancelled"
             else -> "Verification failed"
-        }
-    }
-
-    private fun previewMessage(e: Throwable): String {
-        if (e is RarAccessException) return e.message ?: RAR_DISABLED_MESSAGE
-        val msg = e.message ?: ""
-        return when {
-            msg.contains("wrong password", ignoreCase = true) -> "Wrong password"
-            msg.contains("password required", ignoreCase = true) -> "Password required"
-            msg.contains("cancel", ignoreCase = true) -> "Cancelled"
-            msg.contains("unsupported", ignoreCase = true) -> "Preview not supported for this format"
-            else -> "Could not read archive"
         }
     }
 
@@ -653,50 +651,63 @@ class BrowserViewModel(
             else -> emptySet()
         }
         val job = viewModelScope.launch {
-            if (deep) {
-                val result = withContext(Dispatchers.IO) {
-                    DeepSearch(repo).run(s.currentDir, search, options, elevationEngine()) { scanned ->
-                        if (token == loadToken) _state.value = _state.value.copy(searchScanned = scanned)
+            try {
+                if (deep) {
+                    val result = withContext(Dispatchers.IO) {
+                        DeepSearch(repo).run(s.currentDir, search, options, elevationEngine()) { scanned ->
+                            if (token == loadToken) _state.update { it.copy(searchScanned = scanned) }
+                        }
+                    }
+                    if (token != loadToken) return@launch
+                    val selected = selectionFor(result.items)
+                    _state.update {
+                        it.copy(
+                            items = result.items,
+                            isLoading = false,
+                            searchDeep = true,
+                            searchScanned = result.scanned,
+                            searchCapped = result.capped,
+                            selected = selected,
+                            isSelectionMode = if (silent) selected.isNotEmpty() else s.isSelectionMode
+                        )
+                    }
+                } else {
+                    val elevated = elevationEngine()
+                    val items = repo.listDir(
+                        s.currentDir,
+                        s.sortBy,
+                        s.ascending,
+                        s.foldersFirst,
+                        elevated,
+                        elevatedFirst = elevated != null && canBrowseSystem() && isSystemPath(s.currentDir)
+                    )
+                        .asSequence()
+                        .filter { !s.hideHidden || !it.name.startsWith(".") }
+                        .filter { search.isEmpty || it.matchesSearch(search) }
+                        .toList()
+                    if (token != loadToken) return@launch
+                    val selected = selectionFor(items)
+                    _state.update {
+                        it.copy(
+                            items = items,
+                            isLoading = false,
+                            searchDeep = false,
+                            searchScanned = 0,
+                            searchCapped = false,
+                            selected = selected,
+                            isSelectionMode = if (silent) selected.isNotEmpty() else s.isSelectionMode
+                        )
                     }
                 }
-                if (token != loadToken) return@launch
-                val selected = selectionFor(result.items)
-                _state.value = _state.value.copy(
-                    items = result.items,
-                    isLoading = false,
-                    searchDeep = true,
-                    searchScanned = result.scanned,
-                    searchCapped = result.capped,
-                    selected = selected,
-                    isSelectionMode = if (silent) selected.isNotEmpty() else s.isSelectionMode
-                )
-            } else {
-                val elevated = elevationEngine()
-                val items = repo.listDir(
-                    s.currentDir,
-                    s.sortBy,
-                    s.ascending,
-                    s.foldersFirst,
-                    elevated,
-                    elevatedFirst = elevated != null && canBrowseSystem() && isSystemPath(s.currentDir)
-                )
-                    .asSequence()
-                    .filter { !s.hideHidden || !it.name.startsWith(".") }
-                    .filter { search.isEmpty || it.matchesSearch(search) }
-                    .toList()
-                if (token != loadToken) return@launch
-                val selected = selectionFor(items)
-                _state.value = _state.value.copy(
-                    items = items,
-                    isLoading = false,
-                    searchDeep = false,
-                    searchScanned = 0,
-                    searchCapped = false,
-                    selected = selected,
-                    isSelectionMode = if (silent) selected.isNotEmpty() else s.isSelectionMode
-                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (token == loadToken) {
+                    _state.update { it.copy(isLoading = false) }
+                }
+            } finally {
+                if (token == loadToken && !silent) _refreshing.value = false
             }
-            if (!silent) _refreshing.value = false
         }
         searchJob = job
     }
@@ -748,12 +759,14 @@ class BrowserViewModel(
     fun navigateTo(dir: File) {
         val allowed = dir.isDirectory || (canBrowseSystem() && dir.isAbsolute)
         if (!allowed) return
-        _state.value = _state.value.copy(
-            currentDir = dir,
-            selected = emptySet(),
-            isSelectionMode = false,
-            query = ""
-        )
+        _state.update {
+            it.copy(
+                currentDir = dir,
+                selected = emptySet(),
+                isSelectionMode = false,
+                query = ""
+            )
+        }
         recordInteraction(dir)
         refresh()
     }
@@ -766,9 +779,10 @@ class BrowserViewModel(
     }
 
     fun toggleSelect(path: String) {
-        val s = _state.value
-        val newSel = if (s.selected.contains(path)) s.selected - path else s.selected + path
-        _state.value = s.copy(selected = newSel, isSelectionMode = newSel.isNotEmpty())
+        _state.update { s ->
+            val newSel = if (s.selected.contains(path)) s.selected - path else s.selected + path
+            s.copy(selected = newSel, isSelectionMode = newSel.isNotEmpty())
+        }
     }
 
     fun selectAll() {
@@ -782,13 +796,8 @@ class BrowserViewModel(
         _state.value = s.copy(selected = all, isSelectionMode = true)
     }
 
-    fun allSelected(): Boolean {
-        val s = _state.value
-        return s.items.isNotEmpty() && s.selected.containsAll(s.items.map { it.file.absolutePath })
-    }
-
     fun clearSelection() {
-        _state.value = _state.value.copy(selected = emptySet(), isSelectionMode = false)
+        _state.update { it.copy(selected = emptySet(), isSelectionMode = false) }
     }
 
     fun setSort(sort: SortBy) {
@@ -809,15 +818,10 @@ class BrowserViewModel(
     }
 
     fun setQuery(q: String) {
-        _state.value = _state.value.copy(query = q)
+        _state.update { it.copy(query = q) }
         searchDebounce?.cancel()
-        searchDebounce = null
-        if (parseSearchQuery(q).requiresDeepSearch(searchOptions(_state.value))) {
-            searchDebounce = viewModelScope.launch {
-                delay(SEARCH_DEBOUNCE_MILLIS)
-                refresh()
-            }
-        } else {
+        searchDebounce = viewModelScope.launch {
+            delay(SEARCH_DEBOUNCE_MILLIS)
             refresh()
         }
     }
@@ -866,7 +870,7 @@ class BrowserViewModel(
         onDone: (Result<Unit>) -> Unit
     ) {
         viewModelScope.launch {
-            _state.value = _state.value.copy(isLoading = true)
+            _state.update { it.copy(isLoading = true) }
             val r = if (move) {
                 repo.cut(files, destDir, policy, existingNames)
             } else {
@@ -992,10 +996,6 @@ class BrowserViewModel(
         ArchiveService.startCompress(context, files, dest, format, password.ifEmpty { null }, _state.value.elevationMode)
     }
 
-    fun compressSelection(context: Context, name: String = "archive.zip", format: CompressFormat = CompressFormat.ZIP, password: String = "", onDone: (Result<Unit>) -> Unit = {}) {
-        startCompress(context, name, format, password, onDone)
-    }
-
     fun startExtract(context: Context, file: File, password: String = "", onDone: (Result<Unit>) -> Unit = {}) {
         if (isRarArchive(file) && !_state.value.rarEnabled) {
             onDone(Result.failure(RarDisabledException()))
@@ -1009,7 +1009,7 @@ class BrowserViewModel(
             return
         }
         viewModelScope.launch {
-            val dest = File(file.parentFile, file.nameWithoutExtension)
+            val dest = File(file.parentFile, nameWithoutArchiveExtension(file.name))
             val existing = repo.listNames(dest, elevationEngine())
             val topLevel = if (existing.isEmpty()) {
                 emptyList()
@@ -1062,10 +1062,6 @@ class BrowserViewModel(
             _state.value.elevationMode,
             onlyNames
         )
-    }
-
-    fun extractArchive(context: Context, file: File, password: String = "", onDone: (Result<Unit>) -> Unit = {}) {
-        startExtract(context, file, password, onDone)
     }
 
     fun chmodFile(file: File, mode: Int, onDone: (Result<Unit>) -> Unit = {}) {
@@ -1139,5 +1135,17 @@ class BrowserViewModel(
         stopWatching()
         volumeMonitor?.stop()
         volumeMonitor = null
+    }
+}
+
+internal fun previewArchiveError(e: Throwable): String {
+    if (e is RarAccessException) return e.message ?: RAR_DISABLED_MESSAGE
+    val msg = e.message ?: ""
+    return when {
+        msg.contains("wrong password", ignoreCase = true) -> "Wrong password"
+        msg.contains("password required", ignoreCase = true) -> "Password required"
+        msg.contains("cancel", ignoreCase = true) -> "Cancelled"
+        msg.contains("unsupported", ignoreCase = true) -> "Preview not supported for this format"
+        else -> "Could not read archive"
     }
 }

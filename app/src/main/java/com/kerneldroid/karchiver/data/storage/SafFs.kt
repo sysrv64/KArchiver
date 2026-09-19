@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
-import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -109,15 +108,6 @@ object SafFs {
                 null
             }
         }
-
-    fun resolve(context: Context, treeUri: Uri, rel: String): DocumentFile? {
-        return try {
-            val uri = resolveUri(context, treeUri, rel) ?: return null
-            DocumentFile.fromSingleUri(context, uri)
-        } catch (_: Exception) {
-            null
-        }
-    }
 
     suspend fun listEntries(context: Context, treeUri: Uri, rel: String): List<SafEntry>? =
         withContext(Dispatchers.IO) {

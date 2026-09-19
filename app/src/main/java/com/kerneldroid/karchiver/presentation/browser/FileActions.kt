@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ResolveInfo
-import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,13 +46,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -422,9 +421,11 @@ fun OpenWithDialog(
                 LazyColumn {
                     items(apps, key = { it.activityInfo.packageName + it.activityInfo.name }) { app ->
                         val label = remember(app) { app.loadLabel(packageManager).toString() }
-                        val icon = remember(app) {
-                            runCatching { app.loadIcon(packageManager).toBitmap().asImageBitmap() }
-                                .getOrNull()
+                        val icon by produceState<ImageBitmap?>(initialValue = null, app) {
+                            value = withContext(Dispatchers.IO) {
+                                runCatching { app.loadIcon(packageManager).toBitmap().asImageBitmap() }
+                                    .getOrNull()
+                            }
                         }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -433,9 +434,10 @@ fun OpenWithDialog(
                                 .clickable { onPick(app) }
                                 .padding(vertical = 8.dp)
                         ) {
-                            if (icon != null) {
+                            val iconBitmap = icon
+                            if (iconBitmap != null) {
                                 Image(
-                                    bitmap = icon,
+                                    bitmap = iconBitmap,
                                     contentDescription = null,
                                     modifier = Modifier.size(32.dp)
                                 )
@@ -454,10 +456,6 @@ fun OpenWithDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
-}
-
-fun shareFile(context: Context, file: File): Result<Unit> = runCatching {
-    shareFiles(context, listOf(file)).getOrThrow()
 }
 
 fun shareFiles(context: Context, files: List<File>): Result<Unit> = runCatching {

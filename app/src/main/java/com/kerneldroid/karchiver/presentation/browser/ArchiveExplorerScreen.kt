@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -54,13 +53,14 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,11 +81,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kerneldroid.karchiver.data.CompressFormat
 import com.kerneldroid.karchiver.data.FileItem
 import com.kerneldroid.karchiver.data.FormatRegistry
+import com.kerneldroid.karchiver.data.archive.ArchiveOpManager
 import com.kerneldroid.karchiver.data.archive.ArchiveService
 import com.kerneldroid.karchiver.data.isRarArchive
+import com.kerneldroid.karchiver.data.nameWithoutArchiveExtension
 import com.kerneldroid.karchiver.data.normalizeArchiveName
 import com.kerneldroid.karchiver.data.storage.SafFs
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -123,9 +127,57 @@ fun ArchiveExplorerRoute(
     var propsTarget by remember { mutableStateOf<String?>(null) }
     var pendingTreeCut by remember { mutableStateOf(false) }
     var openWithFile by remember { mutableStateOf<File?>(null) }
+    var openWithDir by remember { mutableStateOf<File?>(null) }
     var openWithApps by remember { mutableStateOf<List<ResolveInfo>>(emptyList()) }
+    var compressStage by remember { mutableStateOf<File?>(null) }
+    var compressRunning by remember { mutableStateOf(false) }
+    val activeArchiveOp by ArchiveOpManager.active.collectAsStateWithLifecycle()
+    val cleanupScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
+    val stagedForLater = remember { mutableListOf<File>() }
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
+
+    fun deleteStaged(dir: File) {
+        stagedForLater.remove(dir)
+        cleanupScope.launch { runCatching { dir.deleteRecursively() } }
+    }
+
+    fun trackStaged(dir: File) {
+        if (!stagedForLater.contains(dir)) stagedForLater.add(dir)
+    }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+            runCatching {
+                context.cacheDir.listFiles { file ->
+                    file.isDirectory && file.name.startsWith("explorer-") && file.lastModified() < cutoff
+                }?.forEach { runCatching { it.deleteRecursively() } }
+            }
+        }
+    }
+
+    LaunchedEffect(activeArchiveOp) {
+        if (activeArchiveOp != null) {
+            if (compressStage != null) compressRunning = true
+        } else if (compressRunning) {
+            val dir = compressStage
+            compressStage = null
+            compressRunning = false
+            if (dir != null) deleteStaged(dir)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            val dir = openWithDir
+            openWithDir = null
+            if (dir != null && openWithFile == null) deleteStaged(dir)
+            val pending = stagedForLater.toList()
+            stagedForLater.clear()
+            pending.forEach { deleteStaged(it) }
+        }
+    }
 
     BackHandler {
         if (!vm.navigateUp()) onClose()
@@ -215,9 +267,17 @@ fun ArchiveExplorerRoute(
         scope.launch {
             val dir = File(context.cacheDir, "explorer-open-" + System.nanoTime())
             withContext(Dispatchers.IO) { dir.mkdirs() }
-            if (!extractPaths(listOf(entryPath), dir)) return@launch
+            if (!extractPaths(listOf(entryPath), dir)) {
+                withContext(Dispatchers.IO) { runCatching { dir.deleteRecursively() } }
+                return@launch
+            }
             val staged = File(dir, entryPath.trimStart('/'))
-            if (staged.isFile) openStagedFile(staged)
+            if (staged.isFile) {
+                trackStaged(dir)
+                openStagedFile(staged)
+            } else {
+                withContext(Dispatchers.IO) { runCatching { dir.deleteRecursively() } }
+            }
         }
     }
 
@@ -229,11 +289,31 @@ fun ArchiveExplorerRoute(
             }
             if (files.isEmpty()) {
                 addError = "Nothing to share"
+                withContext(Dispatchers.IO) { runCatching { dir.deleteRecursively() } }
                 return@launch
             }
+            trackStaged(dir)
             shareFiles(context, files).onFailure {
                 addError = "Cannot share"
             }
+        }
+    }
+
+    fun dismissOpenWith() {
+        val dir = openWithDir
+        openWithDir = null
+        openWithFile = null
+        if (dir != null) deleteStaged(dir)
+    }
+
+    fun pickOpenWith(app: ResolveInfo) {
+        val target = openWithFile ?: return
+        openWithDir?.let { trackStaged(it) }
+        openWithDir = null
+        openWithFile = null
+        val mime = FormatRegistry.forExtension(target.extension).mime
+        launchOpenWith(context, target, mime, app).onFailure {
+            addError = "Cannot open with this app"
         }
     }
 
@@ -244,18 +324,25 @@ fun ArchiveExplorerRoute(
         scope.launch {
             val dir = File(context.cacheDir, "explorer-openwith-" + System.nanoTime())
             withContext(Dispatchers.IO) { dir.mkdirs() }
-            if (!extractPaths(listOf(path), dir)) return@launch
+            if (!extractPaths(listOf(path), dir)) {
+                withContext(Dispatchers.IO) { runCatching { dir.deleteRecursively() } }
+                return@launch
+            }
             val staged = File(dir, path.trimStart('/'))
-            if (!staged.isFile) return@launch
+            if (!staged.isFile) {
+                withContext(Dispatchers.IO) { runCatching { dir.deleteRecursively() } }
+                return@launch
+            }
             val mime = FormatRegistry.forExtension(staged.extension).mime
             openWithApps = queryOpenWith(context, staged, mime)
+            openWithDir = dir
             openWithFile = staged
         }
     }
 
     fun extractSelectionHere(thenDelete: Boolean) {
         scope.launch {
-            val dest = File(archive.parentFile, archive.nameWithoutExtension)
+            val dest = File(archive.parentFile, nameWithoutArchiveExtension(archive.name))
             withContext(Dispatchers.IO) { dest.mkdirs() }
             val ok = if (state.selected.isEmpty()) vm.extractAll(dest) else vm.extractSelected(dest)
             if (ok && thenDelete) vm.deleteSelected()
@@ -690,9 +777,14 @@ fun ArchiveExplorerRoute(
                                     chosenPassword.ifEmpty { null },
                                     "off"
                                 )
+                                compressStage = staging
+                                compressRunning = compressRunning || ArchiveOpManager.active.value != null
                             } else {
                                 addError = "Nothing to compress"
+                                withContext(Dispatchers.IO) { runCatching { staging.deleteRecursively() } }
                             }
+                        } else {
+                            withContext(Dispatchers.IO) { runCatching { staging.deleteRecursively() } }
                         }
                         vm.clearSelection()
                     }
@@ -729,14 +821,8 @@ fun ArchiveExplorerRoute(
             fileName = openWithTarget.name,
             apps = openWithApps,
             packageManager = context.packageManager,
-            onDismiss = { openWithFile = null },
-            onPick = { app ->
-                val mime = FormatRegistry.forExtension(openWithTarget.extension).mime
-                launchOpenWith(context, openWithTarget, mime, app).onFailure {
-                    addError = "Cannot open with this app"
-                }
-                openWithFile = null
-            }
+            onDismiss = { dismissOpenWith() },
+            onPick = { app -> pickOpenWith(app) }
         )
     }
 }

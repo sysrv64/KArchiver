@@ -20,10 +20,10 @@ class ContentScanner(
     fun scan(input: InputStream, needle: String): ContentMatch? = scan(input, listOf(needle))
 
     fun scan(input: InputStream, needles: List<String>): ContentMatch? {
-        val capped = CapInputStream(input, maxBytes)
-        val buffered = BufferedInputStream(capped, READ_CHUNK)
-        if (isBinary(buffered)) return null
-        return InputStreamReader(buffered, Charsets.UTF_8).use { scan(it, needles) }
+        BufferedInputStream(CapInputStream(input, maxBytes), READ_CHUNK).use { buffered ->
+            if (isBinary(buffered)) return null
+            return InputStreamReader(buffered, Charsets.UTF_8).use { scan(it, needles) }
+        }
     }
 
     fun scanText(text: String, needle: String): ContentMatch? = scanText(text, listOf(needle))

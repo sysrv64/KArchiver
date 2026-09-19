@@ -49,19 +49,31 @@ enum class CompressFormat(val extension: String, val label: String, val supports
     RAR("rar", "RAR", true)
 }
 
+private val KNOWN_ARCHIVE_SUFFIXES: List<String> = listOf(
+    ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.lz4",
+    ".tar", ".tgz", ".tbz2", ".tbz", ".txz", ".tzst", ".tlz4",
+    ".zip", ".cbz", ".7z", ".rar", ".cbr",
+    ".gz", ".bz2", ".xz", ".zst", ".lz4"
+).sortedByDescending { it.length }
+
+fun nameWithoutArchiveExtension(name: String): String {
+    val lower = name.lowercase()
+    for (s in KNOWN_ARCHIVE_SUFFIXES) {
+        if (lower.endsWith(s) && name.length > s.length) {
+            return name.substring(0, name.length - s.length)
+        }
+    }
+    val dot = name.lastIndexOf('.')
+    return if (dot > 0 && dot < name.length - 1) name.substring(0, dot) else name
+}
+
 fun normalizeArchiveName(raw: String, format: CompressFormat): String {
     val trimmed = raw.trim().trimEnd('.', ' ', '\t')
     if (trimmed.isEmpty()) return "archive." + format.extension
     val lower = trimmed.lowercase()
-    val known = listOf(
-        ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.lz4",
-        ".tar", ".tgz", ".tbz2", ".tbz", ".txz", ".tzst", ".tlz4",
-        ".zip", ".cbz", ".7z", ".rar", ".cbr",
-        ".gz", ".bz2", ".xz", ".zst", ".lz4"
-    ).sortedByDescending { it.length }
     var base = trimmed
     var strippedKnown = false
-    for (s in known) {
+    for (s in KNOWN_ARCHIVE_SUFFIXES) {
         if (lower.endsWith(s) && trimmed.length > s.length) {
             base = trimmed.substring(0, trimmed.length - s.length)
             strippedKnown = true
@@ -1308,7 +1320,13 @@ class FileSystemRepository {
 object RustBridge {
     const val CODE_OK: Int = 0
     const val CODE_CANCELLED: Int = 2
-    fun isLoaded(): Boolean = try { System.loadLibrary("karchiver_rs"); true } catch (_: Throwable) { false }
+    @Volatile private var loaded: Boolean? = null
+    fun isLoaded(): Boolean {
+        loaded?.let { return it }
+        val result = try { System.loadLibrary("karchiver_rs"); true } catch (_: Throwable) { false }
+        loaded = result
+        return result
+    }
     @JvmStatic external fun compress(srcPaths: Array<String>, destPath: String): Int
     @JvmStatic external fun extract(archivePath: String, destDir: String): Int
     @JvmStatic external fun compressWithPassword(srcPaths: Array<String>, destPath: String, password: String): Int

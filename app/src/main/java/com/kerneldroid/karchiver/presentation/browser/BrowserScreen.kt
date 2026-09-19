@@ -39,7 +39,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -178,7 +177,9 @@ fun BrowserScreen(
         }
     }
 
-    val selectedItems = state.items.filter { state.selected.contains(it.file.absolutePath) }
+    val selectedItems = remember(state.items, state.selected) {
+        state.items.filter { state.selected.contains(it.file.absolutePath) }
+    }
     val singleArchive = selectedItems.singleOrNull()?.takeIf { FormatRegistry.isArchive(it.extension) }
 
     fun notifyRarDisabled() {
@@ -1287,7 +1288,7 @@ internal fun Breadcrumbs(
                     .clip(RoundedCornerShape(8.dp))
                     .combinedClickable(
                         enabled = !isCurrent || isRoot,
-                        onClick = { if (isRoot) onOpenVolumes() else onNavigate(file) }
+                        onClick = { if (isRoot && !systemBrowsing) onOpenVolumes() else onNavigate(file) }
                     )
                     .padding(horizontal = 6.dp, vertical = 4.dp)
             )
@@ -1572,7 +1573,7 @@ private fun FileGridCard(
         contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
         else MaterialTheme.colorScheme.onSurface,
         shape = shape,
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -1947,5 +1948,8 @@ internal fun formatSize(bytes: Long): String {
     val gb = mb / 1024.0; return String.format("%.2f GB", gb)
 }
 
-private fun formatDate(ms: Long): String =
-    SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(ms))
+private val dateFormat = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue() = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
+}
+
+private fun formatDate(ms: Long): String = dateFormat.get()!!.format(Date(ms))
