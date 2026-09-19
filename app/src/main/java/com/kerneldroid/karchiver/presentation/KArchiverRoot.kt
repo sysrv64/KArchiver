@@ -7,9 +7,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,14 +67,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
+
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -113,10 +109,8 @@ import com.kerneldroid.karchiver.presentation.settings.SettingsStorageScreen
 import com.kerneldroid.karchiver.presentation.trash.TrashScreen
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 
 private object RootRoute {
     const val BROWSER = "browser"
@@ -259,8 +253,6 @@ fun KArchiverRoot() {
     }
     var tabMenuId by remember { mutableStateOf<String?>(null) }
     var emptyMenu by remember { mutableStateOf(false) }
-    var sheetCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
-    val tabCoords = remember { mutableMapOf<String, LayoutCoordinates>() }
 
     fun openDrawer() {
         drawerScope.launch { drawerState.open() }
@@ -377,35 +369,25 @@ fun KArchiverRoot() {
             ModalDrawerSheet(modifier = Modifier.widthIn(max = DrawerSheetWidth)) {
                 val shownIds = drawerTabs.map { it.id }.toSet()
                 val restorable = DrawerTab.entries.filter { it.id !in shownIds && !it.mandatory }
-                val pressTimeout = LocalViewConfiguration.current.longPressTimeoutMillis
-                Column(
+                Box(
                     modifier = Modifier
-                        .fillMaxHeight()
-                        .verticalScroll(rememberScrollState())
-                        .onGloballyPositioned { sheetCoords = it }
-                        .pointerInput(pressTimeout) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                val held = try {
-                                    withTimeout(pressTimeout) { waitForUpOrCancellation() }
-                                    false
-                                } catch (_: TimeoutCancellationException) {
-                                    true
-                                }
-                                if (!held) return@awaitEachGesture
-                                val sheet = sheetCoords ?: return@awaitEachGesture
-                                if (tabCoords.values.any { coords ->
-                                        runCatching { sheet.localBoundingBoxOf(coords).contains(down.position) }
-                                            .getOrDefault(false)
-                                    }
-                                ) return@awaitEachGesture
+                        .fillMaxSize()
+                        .combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {},
+                            onLongClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 emptyMenu = true
                             }
-                        }
+                        )
                 ) {
-                    Spacer(modifier = Modifier.height(30.dp))
-                    Box(Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Spacer(modifier = Modifier.height(30.dp))
                         ReorderableColumn(
                             items = drawerTabs,
                             itemKey = { it.id },
@@ -427,49 +409,14 @@ fun KArchiverRoot() {
                                 onLongClick = { tabMenuId = tab.id },
                                 menuExpanded = tabMenuId == tab.id,
                                 onMenuDismiss = { tabMenuId = null },
-                                onPositioned = { coords -> tabCoords[tab.id] = coords },
                                 onRemove = {
                                     tabMenuId = null
-                                    tabCoords.remove(tab.id)
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     drawerTabs.removeAll { it.id == tab.id }
                                     drawerScope.launch { settingsRepo.setDrawerTabs(drawerTabs.map { it.id }) }
                                 }
                             )
                         }
-                        DropdownMenuPopup(
-                            expanded = emptyMenu,
-                            onDismissRequest = { emptyMenu = false }
-                        ) {
-                            DropdownMenuGroup(
-                                shapes = MenuDefaults.groupShape(index = 0, count = 1)
-                            ) {
-                                if (restorable.isEmpty()) {
-                                    DropdownMenuItem(
-                                        text = { Text("All tabs are shown") },
-                                        enabled = false,
-                                        onClick = {}
-                                    )
-                                }
-                                restorable.forEach { tab ->
-                                    DropdownMenuItem(
-                                        text = { Text("Add ${tab.title}") },
-                                        trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
-                                        onClick = {
-                                            emptyMenu = false
-                                            haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                            if (drawerTabs.none { it.id == tab.id }) {
-                                                val ids = insertDrawerTab(drawerTabs.map { it.id }, tab.id)
-                                                drawerTabs.clear()
-                                                drawerTabs.addAll(ids.mapNotNull { DrawerTab.fromId(it) })
-                                                drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
                     if (favorites.isNotEmpty()) {
                         DrawerSectionLabel("Favorites")
                         val favFiles = remember(favorites) { favorites.map { File(it) } }
@@ -513,6 +460,39 @@ fun KArchiverRoot() {
                                     selectDestination(RootRoute.BROWSER)
                                 }
                             )
+                        }
+                    }
+                    }
+                    DropdownMenuPopup(
+                        expanded = emptyMenu,
+                        onDismissRequest = { emptyMenu = false }
+                    ) {
+                        DropdownMenuGroup(
+                            shapes = MenuDefaults.groupShape(index = 0, count = 1)
+                        ) {
+                            if (restorable.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("All tabs are shown") },
+                                    enabled = false,
+                                    onClick = {}
+                                )
+                            }
+                            restorable.forEach { tab ->
+                                DropdownMenuItem(
+                                    text = { Text("Add ${tab.title}") },
+                                    trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
+                                    onClick = {
+                                        emptyMenu = false
+                                        haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                        if (drawerTabs.none { it.id == tab.id }) {
+                                            val ids = insertDrawerTab(drawerTabs.map { it.id }, tab.id)
+                                            drawerTabs.clear()
+                                            drawerTabs.addAll(ids.mapNotNull { DrawerTab.fromId(it) })
+                                            drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -758,14 +738,9 @@ private fun DrawerTabRow(
     onLongClick: () -> Unit,
     menuExpanded: Boolean,
     onMenuDismiss: () -> Unit,
-    onPositioned: (LayoutCoordinates) -> Unit,
     onRemove: () -> Unit
 ) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .onGloballyPositioned(onPositioned)
-    ) {
+    Box(Modifier.fillMaxWidth()) {
         CustomNavigationDrawerItem(
             selected = selected,
             onSelected = onSelected,
