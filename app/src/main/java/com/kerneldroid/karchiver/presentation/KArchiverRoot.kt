@@ -7,6 +7,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,15 +62,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -90,8 +100,8 @@ import com.kerneldroid.karchiver.presentation.browser.BrowserViewModel
 import com.kerneldroid.karchiver.presentation.browser.SearchSettings
 import com.kerneldroid.karchiver.presentation.browser.ViewMode
 import com.kerneldroid.karchiver.presentation.components.CustomNavigationDrawerItem
+import com.kerneldroid.karchiver.presentation.components.HoldToMenuMillis
 import com.kerneldroid.karchiver.presentation.components.ReorderableColumn
-import com.kerneldroid.karchiver.presentation.components.holdToReveal
 import com.kerneldroid.karchiver.presentation.home.HomeScreen
 import com.kerneldroid.karchiver.presentation.history.HistoryScreen
 import com.kerneldroid.karchiver.presentation.recents.RecentsScreen
@@ -106,8 +116,11 @@ import com.kerneldroid.karchiver.presentation.settings.SettingsStorageScreen
 import com.kerneldroid.karchiver.presentation.trash.TrashScreen
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlin.math.roundToInt
 
 private object RootRoute {
     const val BROWSER = "browser"
@@ -121,7 +134,6 @@ private object RootRoute {
 private val DrawerSheetWidth = 280.dp
 private val DeviceUsageBarWidth = 168.dp
 private val DrawerTabHeight = 56.dp
-private val RestoreHoldHeight = 56.dp
 private val DrawerTabSpacing = 4.dp
 
 private enum class DrawerTab(
@@ -251,6 +263,9 @@ fun KArchiverRoot() {
     }
     var tabMenuId by remember { mutableStateOf<String?>(null) }
     var emptyMenu by remember { mutableStateOf(false) }
+    var restorePress by remember { mutableStateOf<IntOffset?>(null) }
+    var sheetCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val tabCoords = remember { mutableMapOf<String, LayoutCoordinates>() }
 
     fun openDrawer() {
         drawerScope.launch { drawerState.open() }
@@ -365,10 +380,39 @@ fun KArchiverRoot() {
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.widthIn(max = DrawerSheetWidth)) {
+                val shownIds = drawerTabs.map { it.id }.toSet()
+                val restorable = DrawerTab.entries.filter { it.id !in shownIds && !it.mandatory }
+                val currentRestorable by rememberUpdatedState(restorable)
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState())
+                        .onGloballyPositioned { sheetCoords = it }
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val held = try {
+                                    withTimeout(HoldToMenuMillis) { waitForUpOrCancellation() }
+                                    false
+                                } catch (_: TimeoutCancellationException) {
+                                    true
+                                }
+                                if (!held) return@awaitEachGesture
+                                if (currentRestorable.isEmpty()) return@awaitEachGesture
+                                val sheet = sheetCoords ?: return@awaitEachGesture
+                                if (tabCoords.values.any { coords ->
+                                        runCatching { sheet.localBoundingBoxOf(coords).contains(down.position) }
+                                            .getOrDefault(false)
+                                    }
+                                ) return@awaitEachGesture
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                restorePress = IntOffset(
+                                    down.position.x.roundToInt(),
+                                    down.position.y.roundToInt()
+                                )
+                                emptyMenu = true
+                            }
+                        }
                 ) {
                     Spacer(modifier = Modifier.height(30.dp))
                     ReorderableColumn(
@@ -383,7 +427,8 @@ fun KArchiverRoot() {
                                 drawerScope.launch { settingsRepo.setDrawerTabs(drawerTabs.map { it.id }) }
                             }
                         },
-                        onHoldStill = { tab -> tabMenuId = tab.id }
+                        onHoldStill = { tab -> tabMenuId = tab.id },
+                        onDragMoveStarted = { tabMenuId = null }
                     ) { tab, _, _ ->
                         DrawerTabRow(
                             tab = tab,
@@ -391,29 +436,53 @@ fun KArchiverRoot() {
                             onSelected = { selectDestination(tab.route) },
                             menuExpanded = tabMenuId == tab.id,
                             onMenuDismiss = { tabMenuId = null },
+                            onPositioned = { coords -> tabCoords[tab.id] = coords },
                             onRemove = {
                                 tabMenuId = null
+                                tabCoords.remove(tab.id)
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 drawerTabs.removeAll { it.id == tab.id }
                                 drawerScope.launch { settingsRepo.setDrawerTabs(drawerTabs.map { it.id }) }
                             }
                         )
                     }
-                    RestoreHoldArea(
-                        shown = drawerTabs,
-                        expanded = emptyMenu,
-                        onExpandedChange = { emptyMenu = it },
-                        onRestore = { tab ->
-                            emptyMenu = false
-                            haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                            if (drawerTabs.none { it.id == tab.id }) {
-                                val ids = insertDrawerTab(drawerTabs.map { it.id }, tab.id)
-                                drawerTabs.clear()
-                                drawerTabs.addAll(ids.mapNotNull { DrawerTab.fromId(it) })
-                                drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
+                    restorePress?.let { press ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .placeAt(press)
+                        ) {
+                            DropdownMenuPopup(
+                                expanded = emptyMenu,
+                                onDismissRequest = {
+                                    emptyMenu = false
+                                    restorePress = null
+                                }
+                            ) {
+                                DropdownMenuGroup(
+                                    shapes = MenuDefaults.groupShape(index = 0, count = 1)
+                                ) {
+                                    restorable.forEach { tab ->
+                                        DropdownMenuItem(
+                                            text = { Text("Add ${tab.title}") },
+                                            trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
+                                            onClick = {
+                                                emptyMenu = false
+                                                restorePress = null
+                                                haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                                if (drawerTabs.none { it.id == tab.id }) {
+                                                    val ids = insertDrawerTab(drawerTabs.map { it.id }, tab.id)
+                                                    drawerTabs.clear()
+                                                    drawerTabs.addAll(ids.mapNotNull { DrawerTab.fromId(it) })
+                                                    drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
-                    )
+                    }
                     if (favorites.isNotEmpty()) {
                         DrawerSectionLabel("Favorites")
                         val favFiles = remember(favorites) { favorites.map { File(it) } }
@@ -701,9 +770,14 @@ private fun DrawerTabRow(
     onSelected: () -> Unit,
     menuExpanded: Boolean,
     onMenuDismiss: () -> Unit,
+    onPositioned: (LayoutCoordinates) -> Unit,
     onRemove: () -> Unit
 ) {
-    Box(Modifier.fillMaxWidth()) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned(onPositioned)
+    ) {
         CustomNavigationDrawerItem(
             selected = selected,
             onSelected = onSelected,
@@ -730,37 +804,7 @@ private fun DrawerTabRow(
     }
 }
 
-@Composable
-private fun RestoreHoldArea(
-    shown: List<DrawerTab>,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    onRestore: (DrawerTab) -> Unit
-) {
-    val shownIds = shown.map { it.id }.toSet()
-    val restorable = DrawerTab.entries.filter { it.id !in shownIds && !it.mandatory }
-    if (restorable.isEmpty()) return
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(RestoreHoldHeight)
-            .holdToReveal { onExpandedChange(true) }
-    ) {
-        DropdownMenuPopup(
-            expanded = expanded,
-            onDismissRequest = { onExpandedChange(false) }
-        ) {
-            DropdownMenuGroup(
-                shapes = MenuDefaults.groupShape(index = 0, count = 1)
-            ) {
-                restorable.forEach { tab ->
-                    DropdownMenuItem(
-                        text = { Text("Add ${tab.title}") },
-                        trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
-                        onClick = { onRestore(tab) }
-                    )
-                }
-            }
-        }
-    }
+private fun Modifier.placeAt(position: IntOffset) = layout { measurable, constraints ->
+    val placeable = measurable.measure(Constraints.fixed(1, 1))
+    layout(1, 1) { placeable.place(position) }
 }

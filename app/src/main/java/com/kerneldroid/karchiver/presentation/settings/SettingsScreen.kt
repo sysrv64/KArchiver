@@ -733,7 +733,7 @@ fun SettingsElevationScreen(
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SegmentedListItem(
                 onClick = { showElevationDialog = true },
-                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 2),
                 colors = ListItemDefaults.segmentedColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
@@ -752,8 +752,8 @@ fun SettingsElevationScreen(
                 Text("Elevation")
             }
             SettingSwitch(
-                index = 0,
-                count = 1,
+                index = 1,
+                count = 2,
                 title = "Browse system paths",
                 subtitle = "Off by default. Lets you go above internal storage to /, /data, /data/data, /vendor and other users. /data and app data need Root; Shizuku can only read some system paths.",
                 checked = settings.systemBrowsing,

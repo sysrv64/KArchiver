@@ -6,17 +6,14 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -27,7 +24,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -38,13 +34,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 
 const val HoldToMenuMillis = 1600L
 
@@ -59,44 +50,25 @@ fun <T> ReorderableColumn(
     itemHeight: Dp,
     itemSpacing: Dp,
     modifier: Modifier = Modifier,
+    onDragMoveStarted: () -> Unit = {},
     content: @Composable ColumnScope.(item: T, index: Int, isDragging: Boolean) -> Unit
 ) {
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val stepPx = with(density) { (itemHeight + itemSpacing).toPx() }
-    val slopPx = with(density) { DragSlop.toPx() }
     val currentOnMove by rememberUpdatedState(onMove)
-    val currentOnHold by rememberUpdatedState(onHoldStill)
+    val currentOnDragMoveStarted by rememberUpdatedState(onDragMoveStarted)
 
     var draggingIndex by remember { mutableIntStateOf(-1) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var moved by remember { mutableStateOf(false) }
-    var holdFired by remember { mutableStateOf(false) }
-    var session by remember { mutableIntStateOf(0) }
     var settling by remember { mutableStateOf(false) }
     val settleOffset = remember { Animatable(0f) }
-    var settleJob by remember { mutableStateOf<Job?>(null) }
 
     val targetIndex = when {
         draggingIndex < 0 || !moved -> draggingIndex
-        else -> (draggingIndex + (dragOffset / stepPx).roundToInt())
-            .coerceIn(0, (items.size - 1).coerceAtLeast(0))
-    }
-
-    LaunchedEffect(session) {
-        if (session == 0) return@LaunchedEffect
-        delay(HoldToMenuMillis)
-        if (draggingIndex >= 0 && !moved && !settling) {
-            val held = items.getOrNull(draggingIndex)
-            holdFired = true
-            draggingIndex = -1
-            dragOffset = 0f
-            if (held != null) {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                currentOnHold(held)
-            }
-        }
+        else -> (draggingIndex + (dragOffset / stepPx).roundToInt()).coerceIn(0, items.lastIndex.coerceAtLeast(0))
     }
 
     Column(modifier) {
@@ -110,16 +82,16 @@ fun <T> ReorderableColumn(
             }
             val animatedShift by animateFloatAsState(
                 targetValue = shift,
-                animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMedium),
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium),
                 label = "reorderShift"
             )
             val scale by animateFloatAsState(
-                targetValue = if (isDragging) 1.04f else 1f,
+                targetValue = if (isDragging) 1.03f else 1f,
                 animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
                 label = "reorderScale"
             )
             val elevation by animateDpAsState(
-                targetValue = if (isDragging) 12.dp else 0.dp,
+                targetValue = if (isDragging) 8.dp else 0.dp,
                 animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
                 label = "reorderElevation"
             )
@@ -133,11 +105,10 @@ fun <T> ReorderableColumn(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .zIndex(if (isDragging) 1f else 0f)
-                        .shadow(elevation, RoundedCornerShape(30.dp), clip = isDragging)
+                        .zIndex(if (isDragging) 2f else 0f)
+                        .shadow(elevation, RoundedCornerShape(30.dp), clip = false)
                         .background(
-                            color = if (isDragging) MaterialTheme.colorScheme.surfaceContainerHighest
-                            else Color.Transparent,
+                            color = if (isDragging) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent,
                             shape = RoundedCornerShape(30.dp)
                         )
                         .graphicsLayer {
@@ -145,45 +116,46 @@ fun <T> ReorderableColumn(
                             scaleX = scale
                             scaleY = scale
                         }
-                        .pointerInput(itemKey(item), items.size) {
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onHoldStill(item)
+                                }
+                            )
+                        }
+                        .pointerInput(items.size) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
-                                    settleJob?.cancel()
                                     settling = false
                                     draggingIndex = index
                                     dragOffset = 0f
                                     moved = false
-                                    holdFired = false
-                                    session++
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
                                 onDrag = { change, amount ->
                                     change.consume()
-                                    if (!holdFired) {
-                                        dragOffset += amount.y
-                                        if (abs(dragOffset) > slopPx) moved = true
+                                    dragOffset += amount.y
+                                    if (!moved && kotlin.math.abs(dragOffset) > with(density) { DragSlop.toPx() }) {
+                                        moved = true
+                                        currentOnDragMoveStarted()
                                     }
                                 },
                                 onDragEnd = {
                                     val from = draggingIndex
-                                    val to = if (!holdFired && moved && from >= 0) {
-                                        (from + (dragOffset / stepPx).roundToInt())
-                                            .coerceIn(0, (items.size - 1).coerceAtLeast(0))
-                                    } else {
-                                        from
-                                    }
-                                    if (!holdFired && from >= 0 && to != from) {
+                                    val to = if (moved && from >= 0) {
+                                        (from + (dragOffset / stepPx).roundToInt()).coerceIn(0, items.lastIndex.coerceAtLeast(0))
+                                    } else from
+
+                                    if (from >= 0 && to != from) {
                                         settling = true
                                         val start = dragOffset
                                         val target = (to - from) * stepPx
-                                        settleJob = scope.launch {
+                                        scope.launch {
                                             settleOffset.snapTo(start)
                                             settleOffset.animateTo(
                                                 targetValue = target,
-                                                animationSpec = spring(
-                                                    dampingRatio = 0.8f,
-                                                    stiffness = Spring.StiffnessMediumLow
-                                                )
+                                                animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
                                             )
                                             currentOnMove(from, to)
                                             draggingIndex = -1
@@ -196,14 +168,12 @@ fun <T> ReorderableColumn(
                                         draggingIndex = -1
                                         dragOffset = 0f
                                         moved = false
-                                        holdFired = false
                                     }
                                 },
                                 onDragCancel = {
                                     draggingIndex = -1
                                     dragOffset = 0f
                                     moved = false
-                                    holdFired = false
                                     settling = false
                                 }
                             )
@@ -212,22 +182,6 @@ fun <T> ReorderableColumn(
                     content(item, index, isDragging)
                 }
             }
-        }
-    }
-}
-
-fun Modifier.holdToReveal(durationMillis: Long = HoldToMenuMillis, onHold: () -> Unit): Modifier = composed {
-    val current by rememberUpdatedState(onHold)
-    pointerInput(durationMillis) {
-        awaitEachGesture {
-            awaitFirstDown(requireUnconsumed = false)
-            val held = try {
-                withTimeout(durationMillis) { waitForUpOrCancellation() }
-                false
-            } catch (_: TimeoutCancellationException) {
-                true
-            }
-            if (held) current()
         }
     }
 }
