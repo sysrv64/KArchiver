@@ -7,8 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -66,12 +66,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -111,6 +114,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 private object RootRoute {
     const val BROWSER = "browser"
@@ -253,6 +257,7 @@ fun KArchiverRoot() {
     }
     var tabMenuId by remember { mutableStateOf<String?>(null) }
     var emptyMenu by remember { mutableStateOf(false) }
+    var restorePress by remember { mutableStateOf<Offset?>(null) }
 
     fun openDrawer() {
         drawerScope.launch { drawerState.open() }
@@ -372,15 +377,15 @@ fun KArchiverRoot() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .combinedClickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {},
-                            onLongClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                emptyMenu = true
-                            }
-                        )
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = { offset ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    restorePress = offset
+                                    emptyMenu = true
+                                }
+                            )
+                        }
                 ) {
                     Column(
                         modifier = Modifier
@@ -463,35 +468,47 @@ fun KArchiverRoot() {
                         }
                     }
                     }
-                    DropdownMenuPopup(
-                        expanded = emptyMenu,
-                        onDismissRequest = { emptyMenu = false }
-                    ) {
-                        DropdownMenuGroup(
-                            shapes = MenuDefaults.groupShape(index = 0, count = 1)
-                        ) {
-                            if (restorable.isEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text("All tabs are shown") },
-                                    enabled = false,
-                                    onClick = {}
-                                )
+                    restorePress?.let { press ->
+                        Box(
+                            modifier = Modifier.offset {
+                                IntOffset(press.x.roundToInt(), press.y.roundToInt())
                             }
-                            restorable.forEach { tab ->
-                                DropdownMenuItem(
-                                    text = { Text("Add ${tab.title}") },
-                                    trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
-                                    onClick = {
-                                        emptyMenu = false
-                                        haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                        if (drawerTabs.none { it.id == tab.id }) {
-                                            val ids = insertDrawerTab(drawerTabs.map { it.id }, tab.id)
-                                            drawerTabs.clear()
-                                            drawerTabs.addAll(ids.mapNotNull { DrawerTab.fromId(it) })
-                                            drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
-                                        }
+                        ) {
+                            DropdownMenuPopup(
+                                expanded = emptyMenu,
+                                onDismissRequest = {
+                                    emptyMenu = false
+                                    restorePress = null
+                                }
+                            ) {
+                                DropdownMenuGroup(
+                                    shapes = MenuDefaults.groupShape(index = 0, count = 1)
+                                ) {
+                                    if (restorable.isEmpty()) {
+                                        DropdownMenuItem(
+                                            text = { Text("All tabs are shown") },
+                                            enabled = false,
+                                            onClick = {}
+                                        )
                                     }
-                                )
+                                    restorable.forEach { tab ->
+                                        DropdownMenuItem(
+                                            text = { Text("Add ${tab.title}") },
+                                            trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
+                                            onClick = {
+                                                emptyMenu = false
+                                                restorePress = null
+                                                haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                                if (drawerTabs.none { it.id == tab.id }) {
+                                                    val ids = insertDrawerTab(drawerTabs.map { it.id }, tab.id)
+                                                    drawerTabs.clear()
+                                                    drawerTabs.addAll(ids.mapNotNull { DrawerTab.fromId(it) })
+                                                    drawerScope.launch { settingsRepo.setDrawerTabs(ids) }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
