@@ -101,7 +101,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug --no-daemon -x lint --stacktrace
 
-      - name: Build release APK and AAB
+      - name: Build release APK
         if: github.event_name != 'pull_request'
         env:
           KEYSTORE_B64: ${{ secrets.KARCHIVER_KEYSTORE_BASE64 }}
@@ -119,7 +119,7 @@ jobs:
           export KARCHIVER_STORE_PASSWORD="$STORE_PASSWORD"
           export KARCHIVER_KEY_ALIAS="$KEY_ALIAS"
           export KARCHIVER_KEY_PASSWORD="$KEY_PASSWORD"
-          ./gradlew :app:assembleRelease :app:bundleRelease --no-daemon -x lint --stacktrace
+          ./gradlew :app:assembleRelease --no-daemon -x lint --stacktrace
 
       - name: Verify signatures
         run: |
@@ -134,20 +134,6 @@ jobs:
             echo "::error::release APK was produced without a signature"
             exit 1
           fi
-
-      - name: Verify AAB signature
-        if: github.event_name != 'pull_request'
-        run: |
-          set -e
-          for aab in app/build/outputs/bundle/release/*.aab; do
-            [ -f "$aab" ] || continue
-            echo "== $aab"
-            if ! jarsigner -verify -certs "$aab" > /dev/null 2>&1; then
-              echo "::error::$aab is not signed"
-              exit 1
-            fi
-            jarsigner -verify -verbose -certs "$aab" | grep -E "jar verified|SHA-256 digest" | head -2 || true
-          done
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v6
@@ -165,14 +151,6 @@ jobs:
           if-no-files-found: ignore
           compression-level: 0
 
-      - name: Upload release AAB
-        uses: actions/upload-artifact@v6
-        with:
-          name: KArchiver-release-aab
-          path: app/build/outputs/bundle/release/*.aab
-          if-no-files-found: ignore
-          compression-level: 0
-
       - name: APK checksums
         run: |
           {
@@ -181,7 +159,7 @@ jobs:
             echo "| file | bytes | sha256 |"
             echo "| --- | --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
-          for file in app/build/outputs/apk/*/*.apk app/build/outputs/bundle/*/*.aab; do
+          for file in app/build/outputs/apk/*/*.apk; do
             [ -f "$file" ] || continue
             SIZE=$(stat -c%s "$file")
             HASH=$(sha256sum "$file" | cut -d' ' -f1)
