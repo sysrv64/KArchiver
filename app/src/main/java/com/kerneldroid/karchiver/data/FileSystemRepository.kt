@@ -199,9 +199,9 @@ class FileSystemRepository {
             SortBy.SIZE -> compareBy { it.size }
             SortBy.TYPE -> compareBy { it.extension }
         }
-        val comparator = if (foldersFirst) compareBy<FileItem> { !it.isDirectory }.then(key) else key
-        val sorted = raw.filter { it.name != TRASH_DIR_NAME }.sortedWith(comparator)
-        if (ascending) sorted else sorted.reversed()
+        val direction = if (ascending) key else key.reversed()
+        val comparator = if (foldersFirst) compareBy<FileItem> { !it.isDirectory }.then(direction) else direction
+        raw.filter { it.name != TRASH_DIR_NAME }.sortedWith(comparator)
     }
 
     suspend fun delete(files: List<File>, elevated: ElevatedFS? = null): Result<Unit> = withContext(Dispatchers.IO) {

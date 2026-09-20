@@ -242,7 +242,7 @@ fun KArchiverRoot() {
     val safGrants by vm.safGrants.collectAsStateWithLifecycle()
     val forcedSaf by vm.forcedSaf.collectAsStateWithLifecycle()
     val safAutoFallback by vm.safAutoFallback.collectAsStateWithLifecycle()
-    val favorites by settingsRepo.favorites.collectAsStateWithLifecycle(initialValue = emptySet())
+    val favoriteOrder by settingsRepo.favoriteOrder.collectAsStateWithLifecycle(initialValue = emptyList())
 
     val drawerOrder = settings?.drawerTabs ?: DEFAULT_DRAWER_TABS
     val storedTabs = remember(drawerOrder) { normalizeDrawerTabs(drawerOrder) }
@@ -424,28 +424,32 @@ fun KArchiverRoot() {
                                 }
                             )
                         }
-                    if (favorites.isNotEmpty()) {
+                    if (favoriteOrder.isNotEmpty()) {
                         DrawerSectionLabel("Favorites")
-                        val favFiles = remember(favorites) { favorites.map { File(it) } }
-                        val favDirs = favFiles.filter { it.isDirectory }.sortedBy { it.name.lowercase() }
-                        val favRest = (favFiles - favDirs.toSet()).sortedBy { it.name.lowercase() }
-                        favDirs.forEach { f ->
+                        val favDirs by produceState(initialValue = emptyMap<String, Boolean>(), favoriteOrder) {
+                            value = withContext(Dispatchers.IO) {
+                                favoriteOrder.associateWith { File(it).isDirectory }
+                            }
+                        }
+                        ReorderableColumn(
+                            items = favoriteOrder,
+                            itemKey = { it },
+                            itemHeight = DrawerTabHeight,
+                            itemSpacing = DrawerTabSpacing,
+                            onMove = { from, to ->
+                                if (from in favoriteOrder.indices && to in favoriteOrder.indices) {
+                                    val moved = favoriteOrder.toMutableList().apply { add(to, removeAt(from)) }
+                                    drawerScope.launch { settingsRepo.setFavoriteOrder(moved) }
+                                }
+                            }
+                        ) { path, _, _ ->
+                            val name = File(path).name.ifEmpty { path }
                             CustomNavigationDrawerItem(
                                 selected = false,
-                                onSelected = { openFavorite(f.absolutePath) },
-                                icon = Icons.Filled.Folder,
-                                text = f.name.ifEmpty { f.absolutePath }
-                            )
-                        }
-                        if (favDirs.isNotEmpty() && favRest.isNotEmpty()) {
-                            HorizontalDivider(modifier = Modifier.padding(horizontal = 28.dp, vertical = 4.dp))
-                        }
-                        favRest.forEach { f ->
-                            CustomNavigationDrawerItem(
-                                selected = false,
-                                onSelected = { openFavorite(f.absolutePath) },
-                                icon = Icons.AutoMirrored.Filled.InsertDriveFile,
-                                text = f.name.ifEmpty { f.absolutePath }
+                                onSelected = { openFavorite(path) },
+                                icon = if (favDirs[path] == true) Icons.Filled.Folder
+                                else Icons.AutoMirrored.Filled.InsertDriveFile,
+                                text = name
                             )
                         }
                     }

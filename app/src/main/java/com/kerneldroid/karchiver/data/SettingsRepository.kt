@@ -1,6 +1,7 @@
 package com.kerneldroid.karchiver.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -107,24 +108,38 @@ class SettingsRepository(private val appContext: Context) {
         val SEARCH_CASE_SENSITIVE = booleanPreferencesKey("search_case_sensitive")
         val SEARCH_MAX_SCAN_MB = intPreferencesKey("search_max_scan_mb")
         val FAVORITES = stringSetPreferencesKey("favorite_paths")
+        val FAVORITE_ORDER = stringPreferencesKey("favorite_order")
     }
 
-    val favorites: Flow<Set<String>> = appContext.dataStore.data.map { p ->
-        p[Keys.FAVORITES]?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+    val favoriteOrder: Flow<List<String>> = appContext.dataStore.data.map { p ->
+        favoriteOrderOf(p)
     }
+
+    val favorites: Flow<Set<String>> = favoriteOrder.map { it.toSet() }
 
     suspend fun toggleFavorite(path: String): Boolean {
         var added = false
         appContext.dataStore.edit { p ->
-            val current = p[Keys.FAVORITES] ?: emptySet()
+            val current = favoriteOrderOf(p)
             added = !current.contains(path)
-            p[Keys.FAVORITES] = if (added) current + path else current - path
+            p[Keys.FAVORITE_ORDER] = (if (added) current + path else current - path).joinToString("\n")
         }
         return added
     }
 
     suspend fun removeFavorite(path: String) = appContext.dataStore.edit { p ->
-        p[Keys.FAVORITES] = (p[Keys.FAVORITES] ?: emptySet()) - path
+        p[Keys.FAVORITE_ORDER] = favoriteOrderOf(p).filter { it != path }.joinToString("\n")
+    }
+
+    suspend fun setFavoriteOrder(paths: List<String>) = appContext.dataStore.edit { p ->
+        p[Keys.FAVORITE_ORDER] = paths.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")
+    }
+
+    private fun favoriteOrderOf(p: Preferences): List<String> {
+        p[Keys.FAVORITE_ORDER]?.let { raw ->
+            return raw.split("\n").map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        }
+        return p[Keys.FAVORITES]?.filter { it.isNotEmpty() }?.sorted() ?: emptyList()
     }
 
     val recentFolders: Flow<List<String>> = appContext.dataStore.data.map { p ->
