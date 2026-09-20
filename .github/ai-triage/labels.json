@@ -1,0 +1,64 @@
+{
+  "labels": [
+    {
+      "name": "bug",
+      "color": "d73a4a",
+      "description": "Confirmed bug: the claimed behavior reproduces and is backed up by the code",
+      "applies_to": ["issue"]
+    },
+    {
+      "name": "enhancement",
+      "color": "a2eeef",
+      "description": "A well-reasoned proposal for an improvement or new functionality",
+      "applies_to": ["issue"]
+    },
+    {
+      "name": "question",
+      "color": "d876e3",
+      "description": "A genuine question about using or understanding the project, not a bug report",
+      "applies_to": ["issue"]
+    },
+    {
+      "name": "invalid",
+      "color": "e4e669",
+      "description": "Filed in good faith, but the claimed problem is not confirmed by the code or is expected behavior",
+      "applies_to": ["issue"]
+    },
+    {
+      "name": "needs-info",
+      "color": "d4c5f9",
+      "description": "Not enough data to reach a conclusion: missing reproduction steps, version, logs or a file",
+      "applies_to": ["issue"]
+    },
+    {
+      "name": "duplicate",
+      "color": "cfd3d7",
+      "description": "Looks like an already-existing issue or pull request",
+      "applies_to": ["issue", "pull_request"]
+    },
+    {
+      "name": "documentation",
+      "color": "0075ca",
+      "description": "About documentation, not code",
+      "applies_to": ["issue", "pull_request"]
+    },
+    {
+      "name": "good-pr",
+      "color": "0e8a16",
+      "description": "A solid PR: clear diff, solves the stated problem, follows the repo's conventions",
+      "applies_to": ["pull_request"]
+    },
+    {
+      "name": "needs-work",
+      "color": "fbca04",
+      "description": "A legitimate PR, but the diff has issues: style, bugs, missing tests",
+      "applies_to": ["pull_request"]
+    },
+    {
+      "name": "trash",
+      "color": "b60205",
+      "description": "Junk: spam, ads, abuse, or no real content",
+      "applies_to": ["issue", "pull_request"]
+    }
+  ]
+}
