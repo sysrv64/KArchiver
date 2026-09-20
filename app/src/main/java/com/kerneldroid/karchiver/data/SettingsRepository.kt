@@ -59,6 +59,8 @@ data class AppSettings(
     val safAutoFallback: Boolean = true,
     val seeDevicesInUi: Boolean = false,
     val autoRefresh: Boolean = false,
+    val equalShapes: Boolean = false,
+    val copyPathQuotes: Boolean = false,
     val systemBrowsing: Boolean = false,
     val drawerTabs: List<String> = DEFAULT_DRAWER_TABS,
     val searchInContent: Boolean = false,
@@ -95,6 +97,8 @@ class SettingsRepository(private val appContext: Context) {
         val SAF_AUTO_FALLBACK = booleanPreferencesKey("saf_auto_fallback")
         val SEE_DEVICES_IN_UI = booleanPreferencesKey("see_devices_in_ui")
         val AUTO_REFRESH = booleanPreferencesKey("auto_refresh")
+        val EQUAL_SHAPES = booleanPreferencesKey("equal_shapes")
+        val COPY_PATH_QUOTES = booleanPreferencesKey("copy_path_quotes")
         val SYSTEM_BROWSING = booleanPreferencesKey("system_browsing")
         val HISTORY_ENABLED = booleanPreferencesKey("history_enabled")
         val DRAWER_TABS = stringPreferencesKey("drawer_tabs")
@@ -162,6 +166,8 @@ class SettingsRepository(private val appContext: Context) {
             safAutoFallback = p[Keys.SAF_AUTO_FALLBACK] ?: true,
             seeDevicesInUi = p[Keys.SEE_DEVICES_IN_UI] ?: false,
             autoRefresh = p[Keys.AUTO_REFRESH] ?: false,
+            equalShapes = p[Keys.EQUAL_SHAPES] ?: false,
+            copyPathQuotes = p[Keys.COPY_PATH_QUOTES] ?: false,
             systemBrowsing = p[Keys.SYSTEM_BROWSING] ?: false,
             drawerTabs = parseDrawerTabs(p[Keys.DRAWER_TABS]).ifEmpty {
                 migrateDrawerTabs(p[Keys.HISTORY_ENABLED] ?: true, p[Keys.TRASH_ENABLED] ?: false)
@@ -238,6 +244,12 @@ class SettingsRepository(private val appContext: Context) {
 
     suspend fun setSystemBrowsing(value: Boolean) =
         appContext.dataStore.edit { it[Keys.SYSTEM_BROWSING] = value }
+
+    suspend fun setEqualShapes(value: Boolean) =
+        appContext.dataStore.edit { it[Keys.EQUAL_SHAPES] = value }
+
+    suspend fun setCopyPathQuotes(value: Boolean) =
+        appContext.dataStore.edit { it[Keys.COPY_PATH_QUOTES] = value }
 
     suspend fun setSearchInContent(value: Boolean) =
         appContext.dataStore.edit { it[Keys.SEARCH_IN_CONTENT] = value }

@@ -439,7 +439,7 @@ fun SettingsFilesScreen(
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SegmentedListItem(
                 onClick = {},
-                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 3),
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 4),
                 colors = ListItemDefaults.segmentedColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
@@ -476,7 +476,7 @@ fun SettingsFilesScreen(
             }
             SettingSwitch(
                 index = 1,
-                count = 3,
+                count = 4,
                 title = "Folders first",
                 subtitle = "Always list folders above files, no matter the sort order.",
                 checked = settings.foldersFirst,
@@ -484,7 +484,7 @@ fun SettingsFilesScreen(
             )
             SegmentedListItem(
                 onClick = {},
-                shapes = ListItemDefaults.segmentedShapes(index = 2, count = 3),
+                shapes = ListItemDefaults.segmentedShapes(index = 2, count = 4),
                 colors = ListItemDefaults.segmentedColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
@@ -532,12 +532,20 @@ fun SettingsFilesScreen(
             ) {
                 Text("Default view")
             }
+            SettingSwitch(
+                index = 3,
+                count = 4,
+                title = "Equal grid cells",
+                subtitle = "Give every grid cell the same size regardless of the name. Long names are clipped and scroll every few seconds.",
+                checked = settings.equalShapes,
+                onCheckedChange = { scope.launch { repo.setEqualShapes(it) } }
+            )
         }
         SectionHeader("Behaviour")
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SettingSwitch(
                 index = 0,
-                count = 6,
+                count = 7,
                 title = "Open last folder",
                 subtitle = "Return to the folder you were in when the app starts.",
                 checked = settings.openLastFolder,
@@ -545,7 +553,7 @@ fun SettingsFilesScreen(
             )
             SettingSwitch(
                 index = 1,
-                count = 6,
+                count = 7,
                 title = "Auto-refresh folder",
                 subtitle = "Watch the open folder and load new or changed files automatically, without pull-to-refresh. Works in folders the app can read directly. Off by default.",
                 checked = settings.autoRefresh,
@@ -553,7 +561,7 @@ fun SettingsFilesScreen(
             )
             SettingSwitch(
                 index = 2,
-                count = 6,
+                count = 7,
                 title = "Hide hidden files",
                 subtitle = "Do not show files and folders whose name starts with a dot.",
                 checked = settings.hideHidden,
@@ -561,7 +569,7 @@ fun SettingsFilesScreen(
             )
             SettingSwitch(
                 index = 3,
-                count = 6,
+                count = 7,
                 title = "Confirm before delete",
                 subtitle = "Ask for confirmation before deleting files and folders.",
                 checked = settings.confirmDelete,
@@ -569,7 +577,7 @@ fun SettingsFilesScreen(
             )
             SettingSwitch(
                 index = 4,
-                count = 6,
+                count = 7,
                 title = "See devices in UI",
                 subtitle = "Show connected drives with used space in the navigation bar.",
                 checked = settings.seeDevicesInUi,
@@ -577,7 +585,7 @@ fun SettingsFilesScreen(
             )
             SettingSwitch(
                 index = 5,
-                count = 6,
+                count = 7,
                 title = "RAR support",
                 subtitle = if (settings.rarWriteEnabled) "Read and write. Packing unlocked."
                     else "Read-only. Hold this row 5 seconds to unlock RAR packing.",
@@ -598,6 +606,14 @@ fun SettingsFilesScreen(
                         }
                     }
                 }
+            )
+            SettingSwitch(
+                index = 6,
+                count = 7,
+                title = "Quote copied paths",
+                subtitle = "Wrap copied paths in single quotes, like '/sdcard/file.txt', for shell scripts and Termux.",
+                checked = settings.copyPathQuotes,
+                onCheckedChange = { scope.launch { repo.setCopyPathQuotes(it) } }
             )
         }
     }

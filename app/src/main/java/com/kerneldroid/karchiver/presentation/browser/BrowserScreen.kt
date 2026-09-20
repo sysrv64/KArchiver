@@ -20,6 +20,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -74,6 +75,7 @@ import com.kerneldroid.karchiver.data.isRarArchive
 import com.kerneldroid.karchiver.data.SortBy
 import com.kerneldroid.karchiver.data.normalizeArchiveName
 import com.kerneldroid.karchiver.data.archive.OpKind
+import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
 import com.kerneldroid.karchiver.presentation.components.FileSearchField
 import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
 import com.kerneldroid.karchiver.presentation.components.detectBarHold
@@ -101,11 +103,13 @@ fun BrowserScreen(
     confirmDelete: Boolean = true,
     rarEnabled: Boolean = false,
     autoRefresh: Boolean = false,
+    equalShapes: Boolean = false,
     barLifted: Boolean,
     onToggleBar: () -> Unit,
     onOpenDrawer: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
+    val quoteCopyPath = LocalQuoteCopyPath.current
     val state by vm.state.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val activeOp by vm.archiveOp.collectAsStateWithLifecycle()
@@ -438,7 +442,8 @@ fun BrowserScreen(
                                 gridState = gridState,
                                 onItemClick = handleItemClick,
                                 onItemLongClick = handleItemLongClick,
-                                onNavigateUp = upAction
+                                onNavigateUp = upAction,
+                                equalShapes = equalShapes
                             )
                         }
                     }
@@ -509,7 +514,7 @@ fun BrowserScreen(
                                 }
                             },
                             onCopyPath = {
-                                copyPaths(context, files)
+                                copyPaths(context, files, quoteCopyPath)
                                 scope.launch {
                                     snackbar.showSnackbar(if (files.size == 1) "Path copied" else "Paths copied")
                                 }
@@ -1302,7 +1307,8 @@ internal fun FileList(
     listState: LazyListState,
     onItemClick: (FileItem) -> Unit,
     onItemLongClick: (FileItem) -> Unit,
-    onNavigateUp: (() -> Unit)? = null
+    onNavigateUp: (() -> Unit)? = null,
+    enableThumbnails: Boolean = true
 ) {
     val extra = if (onNavigateUp != null) 1 else 0
     LazyColumn(
@@ -1331,6 +1337,7 @@ internal fun FileList(
                 favorite = state.favorites.contains(item.file.absolutePath),
                 onClick = { onItemClick(item) },
                 onLongClick = { onItemLongClick(item) },
+                enableThumbnails = enableThumbnails,
                 modifier = Modifier.animateItem()
             )
         }
@@ -1344,7 +1351,9 @@ internal fun FileGrid(
     gridState: LazyGridState,
     onItemClick: (FileItem) -> Unit,
     onItemLongClick: (FileItem) -> Unit,
-    onNavigateUp: (() -> Unit)? = null
+    onNavigateUp: (() -> Unit)? = null,
+    enableThumbnails: Boolean = true,
+    equalShapes: Boolean = false
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 104.dp),
@@ -1366,6 +1375,8 @@ internal fun FileGrid(
                 favorite = state.favorites.contains(item.file.absolutePath),
                 onClick = { onItemClick(item) },
                 onLongClick = { onItemLongClick(item) },
+                enableThumbnails = enableThumbnails,
+                equalShapes = equalShapes,
                 modifier = Modifier.animateItem()
             )
         }
@@ -1484,6 +1495,7 @@ internal fun FileRow(
     favorite: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    enableThumbnails: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     SegmentedListItem(
@@ -1507,11 +1519,12 @@ internal fun FileRow(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        if (item.isDirectory) Icons.Filled.Folder else item.format.icon,
-                        null,
+                    FileLeadingContent(
+                        item = item,
                         tint = if (selected) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        iconModifier = Modifier,
+                        enableThumbnails = enableThumbnails
                     )
                 }
             },
@@ -1562,6 +1575,8 @@ private fun FileGridCard(
     favorite: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    enableThumbnails: Boolean = true,
+    equalShapes: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(if (selected) 20.dp else 16.dp)
@@ -1575,6 +1590,7 @@ private fun FileGridCard(
         shape = shape,
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (equalShapes) Modifier.height(160.dp) else Modifier)
             .clip(shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
@@ -1590,19 +1606,24 @@ private fun FileGridCard(
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    if (item.isDirectory) Icons.Filled.Folder else item.format.icon,
-                    null,
-                    modifier = Modifier.size(26.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                FileLeadingContent(
+                    item = item,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    iconModifier = Modifier.size(26.dp),
+                    enableThumbnails = enableThumbnails
                 )
             }
             Text(
                 item.name,
                 style = MaterialTheme.typography.labelMedium,
-                maxLines = 2,
+                maxLines = if (equalShapes) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = if (equalShapes) {
+                    Modifier.basicMarquee(initialDelayMillis = 1200, repeatDelayMillis = 2200)
+                } else {
+                    Modifier
+                }
             )
             Text(
                 item.snippet ?: (if (item.isDirectory) "Folder" else item.extension.uppercase()),

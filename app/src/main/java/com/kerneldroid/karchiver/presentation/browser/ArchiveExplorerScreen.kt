@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
 import com.kerneldroid.karchiver.data.CompressFormat
 import com.kerneldroid.karchiver.data.FileItem
 import com.kerneldroid.karchiver.data.FormatRegistry
@@ -109,6 +110,7 @@ fun ArchiveExplorerRoute(
     ) {
         ArchiveExplorerViewModel(archive, password)
     }
+    val quoteCopyPath = LocalQuoteCopyPath.current
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -586,13 +588,15 @@ fun ArchiveExplorerRoute(
                     state = browserState,
                     listState = listState,
                     onItemClick = handleItemClick,
-                    onItemLongClick = handleItemLongClick
+                    onItemLongClick = handleItemLongClick,
+                    enableThumbnails = false
                 )
                 else -> FileGrid(
                     state = browserState,
                     gridState = gridState,
                     onItemClick = handleItemClick,
-                    onItemLongClick = handleItemLongClick
+                    onItemLongClick = handleItemLongClick,
+                    enableThumbnails = false
                 )
             }
             Box(
@@ -618,7 +622,7 @@ fun ArchiveExplorerRoute(
                                 onProperties = { propsTarget = state.selected.singleOrNull() },
                                 onShare = { shareSelection() },
                                 onOpenWith = { openWithSelection() },
-                                onCopyPath = { copyPaths(context, selectedVirtualFiles()) }
+                                onCopyPath = { copyPaths(context, selectedVirtualFiles(), quoteCopyPath) }
                             )
                         }
                     )
@@ -658,7 +662,7 @@ fun ArchiveExplorerRoute(
                                         onProperties = { propsTarget = state.selected.singleOrNull() },
                                         onShare = { shareSelection() },
                                         onOpenWith = { openWithSelection() },
-                                        onCopyPath = { copyPaths(context, selectedVirtualFiles()) }
+                                        onCopyPath = { copyPaths(context, selectedVirtualFiles(), quoteCopyPath) }
                                     )
                                 }
                             }

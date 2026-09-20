@@ -114,6 +114,8 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.material.kolor)
     implementation(libs.coil.compose)
+    implementation(libs.coil.svg)
+    implementation(libs.coil.video)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

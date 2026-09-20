@@ -82,6 +82,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.CompositionLocalProvider
 import com.kerneldroid.karchiver.data.AppSettings
 import com.kerneldroid.karchiver.data.DEFAULT_DRAWER_TABS
 import com.kerneldroid.karchiver.data.SettingsRepository
@@ -516,6 +517,7 @@ fun KArchiverRoot() {
             }
         }
     ) {
+    CompositionLocalProvider(LocalQuoteCopyPath provides (settings?.copyPathQuotes == true)) {
     Box(Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
@@ -551,6 +553,7 @@ fun KArchiverRoot() {
                 confirmDelete = settings?.confirmDelete != false,
                 rarEnabled = settings?.rarEnabled == true,
                 autoRefresh = settings?.autoRefresh == true,
+                equalShapes = settings?.equalShapes == true,
                 barLifted = barLifted,
                 onToggleBar = { barLifted = !barLifted },
                 onOpenDrawer = ::openDrawer,
@@ -742,6 +745,7 @@ fun KArchiverRoot() {
                 }
             }
         }
+    }
     }
     }
     }

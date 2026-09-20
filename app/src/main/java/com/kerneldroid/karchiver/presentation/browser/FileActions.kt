@@ -487,14 +487,15 @@ fun shareFiles(context: Context, files: List<File>): Result<Unit> = runCatching 
     context.startActivity(Intent.createChooser(intent, "Share"))
 }
 
-fun copyPath(context: Context, file: File) = copyPaths(context, listOf(file))
+fun copyPath(context: Context, file: File, quote: Boolean = false) = copyPaths(context, listOf(file), quote)
 
-fun copyPaths(context: Context, files: List<File>) {
+fun copyPaths(context: Context, files: List<File>, quote: Boolean = false) {
     val clipboard = context.getSystemService(ClipboardManager::class.java)
-    clipboard?.setPrimaryClip(
-        ClipData.newPlainText("paths", files.joinToString("\n") { it.absolutePath })
-    )
+    clipboard?.setPrimaryClip(ClipData.newPlainText("paths", joinPaths(files, quote)))
 }
+
+internal fun joinPaths(files: List<File>, quote: Boolean): String =
+    files.joinToString("\n") { if (quote) "'${it.absolutePath}'" else it.absolutePath }
 
 suspend fun queryOpenWith(context: Context, file: File, mime: String): List<ResolveInfo> =
     withContext(Dispatchers.IO) {

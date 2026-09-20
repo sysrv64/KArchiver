@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
 import com.kerneldroid.karchiver.data.history.HistoryEntry
 import com.kerneldroid.karchiver.data.history.HistorySection
 import com.kerneldroid.karchiver.data.history.HistoryTypeFilter
@@ -112,6 +113,7 @@ fun HistoryScreen(
     onToggleBar: () -> Unit = {}
 ) {
     BackHandler { onBack() }
+    val quoteCopyPath = LocalQuoteCopyPath.current
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
@@ -236,7 +238,7 @@ fun HistoryScreen(
                                     },
                                     onClick = { open(row.entry) },
                                     onCopyPath = {
-                                        copyPath(context, File(row.entry.path))
+                                        copyPath(context, File(row.entry.path), quoteCopyPath)
                                         scope.launch { snackbar.showSnackbar("Path copied") }
                                     },
                                     onRemove = { vm.remove(row.entry.path) }
