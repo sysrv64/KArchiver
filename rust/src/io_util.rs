@@ -6,6 +6,7 @@
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -581,9 +582,32 @@ pub fn read_head(path: &Path) -> Result<Vec<u8>> {
     Ok(head)
 }
 
-/// Print a non-fatal warning (visible in logcat via stderr).
+static LOG_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Route warnings to an append-only file in addition to stderr.
+pub fn set_log_path(path: Option<PathBuf>) {
+    if let Ok(mut guard) = LOG_PATH.lock() {
+        *guard = path;
+    }
+}
+
+fn now_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
+/// Print a non-fatal warning (visible in logcat via stderr and in the log file).
 pub fn log_warn(msg: impl std::fmt::Display) {
-    eprintln!("[karchiver] {msg}");
+    let line = format!("[karchiver] {msg}");
+    eprintln!("{line}");
+    let path = LOG_PATH.lock().ok().and_then(|guard| guard.clone());
+    if let Some(path) = path
+        && let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path)
+    {
+        let _ = writeln!(file, "{} W karchiver: {line}", now_millis());
+    }
 }
 
 pub fn wipe_bytes(buf: &mut [u8]) {

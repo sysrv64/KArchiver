@@ -1327,6 +1327,7 @@ object RustBridge {
         loaded = result
         return result
     }
+    @JvmStatic external fun setLogFile(path: String)
     @JvmStatic external fun compress(srcPaths: Array<String>, destPath: String): Int
     @JvmStatic external fun extract(archivePath: String, destDir: String): Int
     @JvmStatic external fun compressWithPassword(srcPaths: Array<String>, destPath: String, password: String): Int

@@ -127,6 +127,20 @@ fn finish_void(env: &mut JNIEnv, op: &str, outcome: std::thread::Result<Result<(
     }
 }
 
+/// `setLogFile(path: String)`
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setLogFile(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
+        let text = read_string(&mut env, &path)?;
+        crate::io_util::set_log_path(Some(PathBuf::from(text)));
+        Ok(())
+    }));
+}
+
 /// `compress(srcPaths: Array<String>, destPath: String): Int`
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compress(

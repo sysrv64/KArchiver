@@ -1,7 +1,7 @@
 package com.kerneldroid.karchiver.data.elevation
 
 import android.os.SystemClock
-import android.util.Log
+import com.kerneldroid.karchiver.data.log.KLog
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.File
@@ -136,7 +136,7 @@ object RootEngine : ElevatedFS {
                 }
                 ExecResult(first.code, first.stdout)
             } catch (_: Exception) {
-                Log.e(TAG, "execOneShot failed")
+                KLog.e(TAG, "execOneShot failed")
                 invalidate()
                 ExecResult(FAILED_CODE, "")
             }
@@ -166,7 +166,7 @@ object RootEngine : ElevatedFS {
                 }
             }
         } catch (_: Exception) {
-            Log.e(TAG, "listFiles failed")
+            KLog.e(TAG, "listFiles failed")
             null
         }
     }
@@ -177,7 +177,7 @@ object RootEngine : ElevatedFS {
             val quoted = targets.joinToString(" ") { shellQuote(it.absolutePath) }
             execOneShot("rm -rf -- $quoted").code == 0
         } catch (_: Exception) {
-            Log.e(TAG, "deleteRecursively failed")
+            KLog.e(TAG, "deleteRecursively failed")
             false
         }
     }
@@ -205,7 +205,7 @@ object RootEngine : ElevatedFS {
                 }
             }
         } catch (_: Exception) {
-            Log.e(TAG, "mkdirs failed")
+            KLog.e(TAG, "mkdirs failed")
             false
         }
     }
@@ -252,7 +252,7 @@ object RootEngine : ElevatedFS {
                 }
             }
         } catch (_: Exception) {
-            Log.e(TAG, "chmod failed")
+            KLog.e(TAG, "chmod failed")
             false
         }
     }
@@ -318,7 +318,7 @@ object RootEngine : ElevatedFS {
                 is ExecOutcome.Failed -> RootStatus.Denied
             }
         } catch (_: Exception) {
-            Log.e(TAG, "root probe failed")
+            KLog.e(TAG, "root probe failed")
             RootStatus.Denied
         }
     }
@@ -752,7 +752,7 @@ object RootEngine : ElevatedFS {
                 }
             }
         } catch (_: Exception) {
-            Log.e(TAG, "listDetailed failed")
+            KLog.e(TAG, "listDetailed failed")
             null
         }
     }

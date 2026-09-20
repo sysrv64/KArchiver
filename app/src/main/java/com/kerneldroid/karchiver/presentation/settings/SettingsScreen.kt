@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -50,12 +52,14 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Switch
@@ -91,6 +95,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kerneldroid.karchiver.BuildConfig
 import com.kerneldroid.karchiver.data.AppSettings
+import com.kerneldroid.karchiver.data.log.LogReport
 import com.kerneldroid.karchiver.data.SettingsRepository
 import com.kerneldroid.karchiver.data.SortBy
 import com.kerneldroid.karchiver.data.ThemeMode
@@ -868,6 +873,49 @@ fun SettingsAboutScreen(
                 supportingContent = { Text("Application GPL-3.0-only, Rust core Apache-2.0") }
             ) {
                 Text("License")
+            }
+        }
+        SectionHeader("Diagnostics")
+        val context = LocalContext.current
+        val logScope = rememberCoroutineScope()
+        var savingLogs by remember { mutableStateOf(false) }
+        var logResult by remember { mutableStateOf<String?>(null) }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    if (savingLogs) return@Button
+                    savingLogs = true
+                    logResult = null
+                    logScope.launch {
+                        val content = LogReport.collect(context)
+                        val file = LogReport.save(context, content)
+                        logResult = if (file != null) "Saved to ${file.absolutePath}"
+                        else "Could not save logs"
+                        savingLogs = false
+                    }
+                },
+                enabled = !savingLogs,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                if (savingLogs) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                }
+                Text(if (savingLogs) "Collecting logs…" else "Save logs to Downloads/KArchiver")
+            }
+            Text(
+                "Saves app warnings and errors plus the Rust log into one file under Downloads/KArchiver.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            logResult?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
         SectionHeader("Links")

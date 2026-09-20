@@ -80,5 +80,8 @@ By default the list is only reloaded on navigation or pull-to-refresh. Turn on S
 **Why is there a notification during an operation?**
 Long archive operations run in a foreground service, and Android requires a visible notification for those. It disappears when the operation finishes.
 
+**How do I collect logs for a bug report?**
+Open Settings → About and press **Save logs to Downloads/KArchiver**. It gathers the system log for this app (warnings and errors and above), the in-app Kotlin log, and the Rust log into one text file named `karchiver-logs-<timestamp>.txt` in `Downloads/KArchiver`. Nothing is uploaded; the file is written locally so you can attach it to an issue.
+
 **Are the app and the Rust core licensed the same way?**
 No. `app/` is GPL-3.0-only and `rust/` is Apache-2.0. See [LICENSE](LICENSE) and [rust/LICENSE](rust/LICENSE).

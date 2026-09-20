@@ -7,7 +7,7 @@ import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
-import android.util.Log
+import com.kerneldroid.karchiver.data.log.KLog
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
@@ -82,7 +82,7 @@ object ShizukuEngine : ElevatedFS {
                 }
             } catch (_: Exception) {
                 listenersRegistered.set(false)
-                Log.e(TAG, "listener registration failed")
+                KLog.e(TAG, "listener registration failed")
                 _status.value = ShizukuStatus.Unavailable
             }
         }
@@ -113,7 +113,7 @@ object ShizukuEngine : ElevatedFS {
             }
             ShizukuStatus.Ready
         } catch (_: Exception) {
-            Log.e(TAG, "status probe failed")
+            KLog.e(TAG, "status probe failed")
             ShizukuStatus.Unavailable
         }
     }
@@ -127,16 +127,16 @@ object ShizukuEngine : ElevatedFS {
             val uid = try {
                 Shizuku.getUid()
             } catch (_: Exception) {
-                Log.e(TAG, "preflight uid probe failed")
+                KLog.e(TAG, "preflight uid probe failed")
                 return ShizukuStatus.Unavailable
             }
             if (uid != ROOT_UID && uid != SHELL_UID) {
-                Log.e(TAG, "preflight unexpected uid")
+                KLog.e(TAG, "preflight unexpected uid")
                 return ShizukuStatus.Unavailable
             }
             ShizukuStatus.Ready
         } catch (_: Exception) {
-            Log.e(TAG, "preflight failed")
+            KLog.e(TAG, "preflight failed")
             ShizukuStatus.Unavailable
         }
     }
@@ -163,7 +163,7 @@ object ShizukuEngine : ElevatedFS {
                 if (activity.isFinishing || activity.isDestroyed) return@launch
                 Shizuku.requestPermission(PERMISSION_REQUEST_CODE)
             } catch (_: Exception) {
-                Log.e(TAG, "permission request failed")
+                KLog.e(TAG, "permission request failed")
                 _status.value = ShizukuStatus.Unavailable
             }
         }
@@ -197,12 +197,12 @@ object ShizukuEngine : ElevatedFS {
             try {
                 service.deleteAll(targets.map { it.absolutePath }) == SUCCESS
             } catch (_: Exception) {
-                Log.e(TAG, "deleteRecursively failed")
+                KLog.e(TAG, "deleteRecursively failed")
                 dropService()
                 false
             }
         } catch (_: Exception) {
-            Log.e(TAG, "deleteRecursively failed")
+            KLog.e(TAG, "deleteRecursively failed")
             false
         }
     }
@@ -214,12 +214,12 @@ object ShizukuEngine : ElevatedFS {
             try {
                 service.makeDirs(dir.absolutePath) == SUCCESS
             } catch (_: Exception) {
-                Log.e(TAG, "mkdirs failed")
+                KLog.e(TAG, "mkdirs failed")
                 dropService()
                 false
             }
         } catch (_: Exception) {
-            Log.e(TAG, "mkdirs failed")
+            KLog.e(TAG, "mkdirs failed")
             false
         }
     }
@@ -232,12 +232,12 @@ object ShizukuEngine : ElevatedFS {
             try {
                 service.setMode(path.absolutePath, mode) == SUCCESS
             } catch (_: Exception) {
-                Log.e(TAG, "chmod failed")
+                KLog.e(TAG, "chmod failed")
                 dropService()
                 false
             }
         } catch (_: Exception) {
-            Log.e(TAG, "chmod failed")
+            KLog.e(TAG, "chmod failed")
             false
         }
     }
@@ -249,12 +249,12 @@ object ShizukuEngine : ElevatedFS {
             try {
                 validateFd(service.openFile(path, 0))
             } catch (_: Exception) {
-                Log.e(TAG, "openReadFd failed")
+                KLog.e(TAG, "openReadFd failed")
                 dropService()
                 null
             }
         } catch (_: Exception) {
-            Log.e(TAG, "openReadFd failed")
+            KLog.e(TAG, "openReadFd failed")
             null
         }
     }
@@ -266,12 +266,12 @@ object ShizukuEngine : ElevatedFS {
             try {
                 validateFd(service.openFile(path, 1))
             } catch (_: Exception) {
-                Log.e(TAG, "openWriteFd failed")
+                KLog.e(TAG, "openWriteFd failed")
                 dropService()
                 null
             }
         } catch (_: Exception) {
-            Log.e(TAG, "openWriteFd failed")
+            KLog.e(TAG, "openWriteFd failed")
             null
         }
     }
@@ -314,7 +314,7 @@ object ShizukuEngine : ElevatedFS {
                 return@withContext null
             }
         } catch (_: Exception) {
-            Log.e(TAG, "user service bind failed")
+            KLog.e(TAG, "user service bind failed")
             _status.value = ShizukuStatus.Unavailable
             return@withContext null
         }
@@ -359,7 +359,7 @@ object ShizukuEngine : ElevatedFS {
         try {
             Shizuku.bindUserService(args, connection)
         } catch (_: Exception) {
-            Log.e(TAG, "user service bind failed")
+            KLog.e(TAG, "user service bind failed")
             activeArgs = null
             activeConnection = null
             _status.value = ShizukuStatus.Unavailable
@@ -370,7 +370,7 @@ object ShizukuEngine : ElevatedFS {
                 try {
                     ready.await()
                 } catch (_: Exception) {
-                    Log.e(TAG, "user service bind failed")
+                    KLog.e(TAG, "user service bind failed")
                     null
                 }
             }
@@ -378,7 +378,7 @@ object ShizukuEngine : ElevatedFS {
             try {
                 Shizuku.unbindUserService(args, connection, true)
             } catch (_: Exception) {
-                Log.e(TAG, "user service unbind failed")
+                KLog.e(TAG, "user service unbind failed")
             }
             activeArgs = null
             activeConnection = null
@@ -397,7 +397,7 @@ object ShizukuEngine : ElevatedFS {
         try {
             Shizuku.unbindUserService(args, connection, true)
         } catch (_: Exception) {
-            Log.e(TAG, "user service unbind failed")
+            KLog.e(TAG, "user service unbind failed")
         }
         activeArgs = null
         activeConnection = null
@@ -429,13 +429,13 @@ object ShizukuEngine : ElevatedFS {
             val entries = try {
                 service.listDir(dir.absolutePath)
             } catch (_: Exception) {
-                Log.e(TAG, "listDetailed failed")
+                KLog.e(TAG, "listDetailed failed")
                 dropService()
                 return@withContext null
             } ?: return@withContext null
             entries.mapNotNull { decodeEntry(dir, it) }
         } catch (_: Exception) {
-            Log.e(TAG, "listDetailed failed")
+            KLog.e(TAG, "listDetailed failed")
             null
         }
     }

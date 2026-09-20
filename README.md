@@ -26,6 +26,7 @@ Android file manager built around archives: browse storage, open archives withou
 - Optional quoted copy path (off by default): copied paths are wrapped in single quotes for shell scripts and Termux.
 - Optional equal grid cells (off by default): every grid cell gets the same size and long names scroll instead of being cut off.
 - Optional history of visited folders and files in a local Room database.
+- Diagnostics: Settings → About → Save logs writes the app's warnings and errors plus the Rust log into one file under `Downloads/KArchiver`.
 
 ## Formats
 
