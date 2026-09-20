@@ -371,6 +371,7 @@ fun KArchiverRoot() {
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = !browserState.isSelectionMode,
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.widthIn(max = DrawerSheetWidth)) {
                 val shownIds = drawerTabs.map { it.id }.toSet()

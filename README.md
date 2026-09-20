@@ -8,7 +8,8 @@ Android file manager built around archives: browse storage, open archives withou
 
 ## Features
 
-- Storage browser: volumes (internal / SD / USB), list and grid, sorting, hidden files, multi-select, copy / cut / paste, favorites, storage usage carousel.
+- Storage browser: volumes (internal / SD / USB), list and grid, sorting, hidden files, multi-select (hold an item and swipe across it to select a range), copy / cut / paste, favorites, storage usage carousel.
+- Real thumbnails for images (JPG, PNG, WebP, GIF, SVG and more) and a frame from videos, with a placeholder icon for anything broken or unsupported.
 - Customizable navigation drawer: drag a tab from its right edge to reorder it, hold a tab to remove it, hold any empty spot in the drawer to add a tab back.
 - Recents: the newest files and folders from every storage volume in one list.
 - Archive explorer: browse ZIP, 7Z, TAR family and RAR without extracting; in-place add, rename and delete for ZIP, TAR family and 7Z.
@@ -20,6 +21,8 @@ Android file manager built around archives: browse storage, open archives withou
 - Optional Shizuku or root engine for restricted paths, SAF fallback when All files access is denied.
 - Optional system browsing (off by default): a `..` parent entry at the top of the list lets you climb above internal storage into `/`, `/data`, `/data/data`, `/vendor`, `/system` and other users' storage. Root is required for `/data` and app data.
 - Optional auto-refresh (off by default): watches the open folder and loads new, changed or deleted files automatically, without pull-to-refresh. Works in folders the app can read directly.
+- Optional quoted copy path (off by default): copied paths are wrapped in single quotes for shell scripts and Termux.
+- Optional equal grid cells (off by default): every grid cell gets the same size and long names scroll instead of being cut off.
 - Optional history of visited folders and files in a local Room database.
 
 ## Formats

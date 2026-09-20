@@ -24,14 +24,19 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridItemInfo
+import androidx.compose.foundation.lazy.grid.LazyGridLayoutInfo
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -54,6 +59,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -90,6 +97,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private enum class CreateKind { FOLDER, FILE }
 
@@ -435,7 +443,8 @@ fun BrowserScreen(
                                 listState = listState,
                                 onItemClick = handleItemClick,
                                 onItemLongClick = handleItemLongClick,
-                                onNavigateUp = upAction
+                                onNavigateUp = upAction,
+                                onSelectionChange = vm::setSelection
                             )
                             else -> FileGrid(
                                 state = state,
@@ -443,7 +452,8 @@ fun BrowserScreen(
                                 onItemClick = handleItemClick,
                                 onItemLongClick = handleItemLongClick,
                                 onNavigateUp = upAction,
-                                equalShapes = equalShapes
+                                equalShapes = equalShapes,
+                                onSelectionChange = vm::setSelection
                             )
                         }
                     }
@@ -1301,6 +1311,121 @@ internal fun Breadcrumbs(
     }
 }
 
+private fun LazyListLayoutInfo.itemIndexAtY(y: Float): Int? {
+    val py = y.roundToInt()
+    return visibleItemsInfo.lastOrNull { it.offset <= py }?.index
+}
+
+private fun LazyGridLayoutInfo.itemIndexAt(x: Float, y: Float): Int? {
+    val px = x.roundToInt()
+    val py = y.roundToInt()
+    val row = visibleItemsInfo.lastOrNull {
+        it.row != LazyGridItemInfo.UnknownRow && it.offset.y <= py
+    } ?: return null
+    val rowTop = row.offset.y
+    return visibleItemsInfo.asSequence()
+        .filter { it.offset.y == rowTop && it.offset.x <= px }
+        .maxByOrNull { it.offset.x }
+        ?.index
+}
+
+private fun Modifier.dragSelectList(
+    listState: LazyListState,
+    longPressTick: State<Int>,
+    anchorIndex: State<Int>,
+    baseSelection: State<Set<String>>,
+    pathForIndex: State<(Int) -> String?>,
+    onSelectionChange: State<(Set<String>) -> Unit>
+): Modifier = pointerInput(listState) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val tickAtDown = longPressTick.value
+        var tracking = false
+        var lastLo = -1
+        var lastHi = -1
+        var lastEmitted: Set<String>? = null
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            if (!change.pressed) {
+                if (tracking) event.changes.forEach { it.consume() }
+                break
+            }
+            if (!tracking && longPressTick.value != tickAtDown) tracking = true
+            if (!tracking) continue
+            event.changes.forEach { it.consume() }
+            val y = change.position.y
+            val edge = 56.dp.toPx()
+            val scrollDelta = when {
+                y < edge -> y - edge
+                y > size.height - edge -> y - (size.height - edge)
+                else -> 0f
+            }
+            if (scrollDelta != 0f) listState.dispatchRawDelta(scrollDelta * 0.5f)
+            val idx = listState.layoutInfo.itemIndexAtY(y) ?: continue
+            val lo = minOf(anchorIndex.value, idx)
+            val hi = maxOf(anchorIndex.value, idx)
+            if (lo == lastLo && hi == lastHi) continue
+            lastLo = lo
+            lastHi = hi
+            val paths = baseSelection.value + (lo..hi).mapNotNull(pathForIndex.value)
+            if (paths != lastEmitted) {
+                lastEmitted = paths
+                onSelectionChange.value(paths)
+            }
+        }
+    }
+}
+
+private fun Modifier.dragSelectGrid(
+    gridState: LazyGridState,
+    longPressTick: State<Int>,
+    anchorIndex: State<Int>,
+    baseSelection: State<Set<String>>,
+    pathForIndex: State<(Int) -> String?>,
+    onSelectionChange: State<(Set<String>) -> Unit>
+): Modifier = pointerInput(gridState) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val tickAtDown = longPressTick.value
+        var tracking = false
+        var lastLo = -1
+        var lastHi = -1
+        var lastEmitted: Set<String>? = null
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            if (!change.pressed) {
+                if (tracking) event.changes.forEach { it.consume() }
+                break
+            }
+            if (!tracking && longPressTick.value != tickAtDown) tracking = true
+            if (!tracking) continue
+            event.changes.forEach { it.consume() }
+            val x = change.position.x
+            val y = change.position.y
+            val edge = 56.dp.toPx()
+            val scrollDelta = when {
+                y < edge -> y - edge
+                y > size.height - edge -> y - (size.height - edge)
+                else -> 0f
+            }
+            if (scrollDelta != 0f) gridState.dispatchRawDelta(scrollDelta * 0.5f)
+            val idx = gridState.layoutInfo.itemIndexAt(x, y) ?: continue
+            val lo = minOf(anchorIndex.value, idx)
+            val hi = maxOf(anchorIndex.value, idx)
+            if (lo == lastLo && hi == lastHi) continue
+            lastLo = lo
+            lastHi = hi
+            val paths = baseSelection.value + (lo..hi).mapNotNull(pathForIndex.value)
+            if (paths != lastEmitted) {
+                lastEmitted = paths
+                onSelectionChange.value(paths)
+            }
+        }
+    }
+}
+
 @Composable
 internal fun FileList(
     state: BrowserUiState,
@@ -1308,12 +1433,29 @@ internal fun FileList(
     onItemClick: (FileItem) -> Unit,
     onItemLongClick: (FileItem) -> Unit,
     onNavigateUp: (() -> Unit)? = null,
-    enableThumbnails: Boolean = true
+    enableThumbnails: Boolean = true,
+    onSelectionChange: (Set<String>) -> Unit = {}
 ) {
     val extra = if (onNavigateUp != null) 1 else 0
+    val longPressTick = remember { mutableIntStateOf(0) }
+    val anchorIndex = remember { mutableIntStateOf(0) }
+    val baseSelection = remember { mutableStateOf<Set<String>>(emptySet()) }
+    val latestSelected = rememberUpdatedState(state.selected)
+    val pathForIndex: (Int) -> String? = { i -> state.items.getOrNull(i - extra)?.file?.absolutePath }
+    val latestPathForIndex = rememberUpdatedState(pathForIndex)
+    val latestOnSelectionChange = rememberUpdatedState(onSelectionChange)
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .dragSelectList(
+                listState = listState,
+                longPressTick = longPressTick,
+                anchorIndex = anchorIndex,
+                baseSelection = baseSelection,
+                pathForIndex = latestPathForIndex,
+                onSelectionChange = latestOnSelectionChange
+            ),
         contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
     ) {
@@ -1336,7 +1478,12 @@ internal fun FileList(
                 selected = state.selected.contains(item.file.absolutePath),
                 favorite = state.favorites.contains(item.file.absolutePath),
                 onClick = { onItemClick(item) },
-                onLongClick = { onItemLongClick(item) },
+                onLongClick = {
+                    baseSelection.value = latestSelected.value
+                    anchorIndex.value = index + extra
+                    onItemLongClick(item)
+                    longPressTick.value++
+                },
                 enableThumbnails = enableThumbnails,
                 modifier = Modifier.animateItem()
             )
@@ -1353,12 +1500,30 @@ internal fun FileGrid(
     onItemLongClick: (FileItem) -> Unit,
     onNavigateUp: (() -> Unit)? = null,
     enableThumbnails: Boolean = true,
-    equalShapes: Boolean = false
+    equalShapes: Boolean = false,
+    onSelectionChange: (Set<String>) -> Unit = {}
 ) {
+    val extra = if (onNavigateUp != null) 1 else 0
+    val longPressTick = remember { mutableIntStateOf(0) }
+    val anchorIndex = remember { mutableIntStateOf(0) }
+    val baseSelection = remember { mutableStateOf<Set<String>>(emptySet()) }
+    val latestSelected = rememberUpdatedState(state.selected)
+    val pathForIndex: (Int) -> String? = { i -> state.items.getOrNull(i - extra)?.file?.absolutePath }
+    val latestPathForIndex = rememberUpdatedState(pathForIndex)
+    val latestOnSelectionChange = rememberUpdatedState(onSelectionChange)
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 104.dp),
         state = gridState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .dragSelectGrid(
+                gridState = gridState,
+                longPressTick = longPressTick,
+                anchorIndex = anchorIndex,
+                baseSelection = baseSelection,
+                pathForIndex = latestPathForIndex,
+                onSelectionChange = latestOnSelectionChange
+            ),
         contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1368,13 +1533,18 @@ internal fun FileGrid(
                 ParentFolderCard(onClick = onNavigateUp, modifier = Modifier.animateItem())
             }
         }
-        items(state.items, key = { it.file.absolutePath }) { item ->
+        itemsIndexed(state.items, key = { _, item -> item.file.absolutePath }) { index, item ->
             FileGridCard(
                 item = item,
                 selected = state.selected.contains(item.file.absolutePath),
                 favorite = state.favorites.contains(item.file.absolutePath),
                 onClick = { onItemClick(item) },
-                onLongClick = { onItemLongClick(item) },
+                onLongClick = {
+                    baseSelection.value = latestSelected.value
+                    anchorIndex.value = index + extra
+                    onItemLongClick(item)
+                    longPressTick.value++
+                },
                 enableThumbnails = enableThumbnails,
                 equalShapes = equalShapes,
                 modifier = Modifier.animateItem()

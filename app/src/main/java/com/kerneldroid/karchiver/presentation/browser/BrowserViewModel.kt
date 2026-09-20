@@ -785,6 +785,13 @@ class BrowserViewModel(
         }
     }
 
+    fun setSelection(paths: Set<String>) {
+        _state.update { s ->
+            if (s.selected == paths) s
+            else s.copy(selected = paths, isSelectionMode = paths.isNotEmpty())
+        }
+    }
+
     fun selectAll() {
         val s = _state.value
         val all = s.items.map { it.file.absolutePath }.toSet()

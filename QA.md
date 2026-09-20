@@ -51,6 +51,18 @@ It is off by default. Add the **Trash** tab by holding any empty spot in the dra
 **How do I reorder, remove or restore the tabs in the navigation drawer?**
 Hold a tab still briefly to open a small menu that removes it; hold the right edge of a tab and drag it to move it. When a tab is missing, hold any empty spot in the drawer (outside the tab rows) to open a menu that adds it back. Files and Settings cannot be removed. Removing the **Trash** tab switches Trash off and adding it back switches it on; removing **History** stops history recording and adding it back resumes it. The whole drawer scrolls when favorites or devices make it longer than the screen.
 
+**How do I select many files quickly?**
+Long-press one item, then keep your finger down and drag across the list or grid: every item you pass over is added to the selection, like in a gallery app. Lift your finger to stop; the selection stays. Tapping items afterwards toggles them one by one, and the selection toolbar works as usual. A normal swipe still scrolls, and the drawer edge-swipe is paused only while a selection is active.
+
+**Why do some files show a picture and others a placeholder icon?**
+Images (JPG, PNG, WebP, GIF, SVG, HEIC/AVIF where the device supports them) and videos show a real thumbnail; videos use a frame from the middle of the file. Everything else, and any file that is broken, unreadable or unsupported, falls back to the normal type icon. Thumbnails are generated on demand, cached, and downsampled, so large files do not slow the list down. Files that are only readable through root/Shizuku are shown with their icon because the thumbnailer runs as the app.
+
+**Can I copy paths wrapped in quotes?**
+Yes. Turn on Settings → Files → **Quote copied paths** (off by default) and **Copy path** wraps each path in single quotes, for example `'/sdcard/Download/file.txt'`, which is handy for shell scripts and Termux. It applies to the browser, the archive explorer and History.
+
+**Why are all the grid cells the same size?**
+Turn on Settings → Files → **Equal grid cells** (off by default) and every grid cell gets the same size regardless of the name. Names are then shown on one line and long ones scroll every few seconds so you can still read them.
+
 **What is the Recents tab?**
 One list of the most recently changed files and folders from every mounted volume, newest first. It scans in the background with a folder budget and a time budget, shows progress while it runs, and stops early on very large storages. Tap a folder to open it in Files; tap a file to open it. Pull the refresh button in the top bar to scan again.
 
