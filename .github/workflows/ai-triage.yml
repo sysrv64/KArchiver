@@ -26,6 +26,7 @@ concurrency:
 jobs:
   triage:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: sysv86/ai-triage-bot@v1
