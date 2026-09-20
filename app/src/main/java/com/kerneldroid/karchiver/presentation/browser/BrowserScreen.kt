@@ -23,6 +23,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -41,6 +42,8 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -58,12 +61,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -80,6 +85,7 @@ import com.kerneldroid.karchiver.data.FileSystemRepository
 import com.kerneldroid.karchiver.data.RAR_DISABLED_MESSAGE
 import com.kerneldroid.karchiver.data.isRarArchive
 import com.kerneldroid.karchiver.data.SortBy
+import com.kerneldroid.karchiver.data.nameWithoutArchiveExtension
 import com.kerneldroid.karchiver.data.normalizeArchiveName
 import com.kerneldroid.karchiver.data.archive.OpKind
 import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
@@ -94,12 +100,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
 private enum class CreateKind { FOLDER, FILE }
+
+private enum class ExtractDest { HERE, NEW_FOLDER, CUSTOM }
 
 private const val SCROLL_TOP_JUMP_THRESHOLD = 12
 private val FabMenuEdgeInset = 16.dp
@@ -112,6 +122,8 @@ fun BrowserScreen(
     rarEnabled: Boolean = false,
     autoRefresh: Boolean = false,
     equalShapes: Boolean = false,
+    externalFile: File? = null,
+    onExternalHandled: () -> Unit = {},
     barLifted: Boolean,
     onToggleBar: () -> Unit,
     onOpenDrawer: () -> Unit,
@@ -175,6 +187,10 @@ fun BrowserScreen(
     var openWithFile by remember { mutableStateOf<File?>(null) }
     var openWithApps by remember { mutableStateOf<List<ResolveInfo>>(emptyList()) }
     var pendingExtract by remember { mutableStateOf<File?>(null) }
+    var extractDest by remember { mutableStateOf(ExtractDest.NEW_FOLDER) }
+    var extractCustomDir by remember { mutableStateOf<File?>(null) }
+    var extractDeleteAfter by remember { mutableStateOf(false) }
+    var showFolderPicker by remember { mutableStateOf(false) }
     var createKind by remember { mutableStateOf<CreateKind?>(null) }
     var fabMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var fabMenuHeight by remember { mutableIntStateOf(0) }
@@ -798,13 +814,53 @@ fun BrowserScreen(
 
     pendingExtract?.let { file ->
         var password by remember(file.absolutePath) { mutableStateOf("") }
+        val newFolder = remember(file.absolutePath) {
+            File(file.parentFile, nameWithoutArchiveExtension(file.name))
+        }
         AlertDialog(
             onDismissRequest = { pendingExtract = null },
             icon = { Icon(Icons.Filled.FolderOpen, null) },
             title = { Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Extract this archive into the folder \"${file.nameWithoutExtension}\"?")
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("Destination", style = MaterialTheme.typography.labelLarge)
+                    ExtractDestRow(
+                        selected = extractDest == ExtractDest.HERE,
+                        title = "Here",
+                        subtitle = file.parentFile?.absolutePath ?: "",
+                        onSelect = { extractDest = ExtractDest.HERE }
+                    )
+                    ExtractDestRow(
+                        selected = extractDest == ExtractDest.NEW_FOLDER,
+                        title = "New folder",
+                        subtitle = newFolder.absolutePath,
+                        onSelect = { extractDest = ExtractDest.NEW_FOLDER }
+                    )
+                    ExtractDestRow(
+                        selected = extractDest == ExtractDest.CUSTOM,
+                        title = "Choose folder",
+                        subtitle = extractCustomDir?.absolutePath ?: "Tap to pick a folder",
+                        onSelect = {
+                            extractDest = ExtractDest.CUSTOM
+                            showFolderPicker = true
+                        }
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { extractDeleteAfter = !extractDeleteAfter }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(checked = extractDeleteAfter, onCheckedChange = { extractDeleteAfter = it })
+                        Spacer(Modifier.width(8.dp))
+                        Text("Delete archive after extraction")
+                    }
+                    Spacer(Modifier.height(4.dp))
                     PasswordField(
                         value = password,
                         onValueChange = { password = it },
@@ -813,15 +869,27 @@ fun BrowserScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    val chosenPassword = password
-                    pendingExtract = null
-                    vm.startExtract(context, file, chosenPassword) { r ->
-                        scope.launch {
-                            snackbar.showSnackbar(vm.archiveOpMessage(r.exceptionOrNull(), "Extracted", "Extraction failed"))
+                Button(
+                    enabled = extractDest != ExtractDest.CUSTOM || extractCustomDir != null,
+                    onClick = {
+                        val chosenPassword = password
+                        val dest = when (extractDest) {
+                            ExtractDest.HERE -> file.parentFile
+                            ExtractDest.NEW_FOLDER -> newFolder
+                            ExtractDest.CUSTOM -> extractCustomDir
+                        } ?: return@Button
+                        val deleteAfter = extractDeleteAfter
+                        pendingExtract = null
+                        vm.startExtractTo(context, file, dest, chosenPassword) { r ->
+                            if (r.isSuccess && deleteAfter) {
+                                vm.deleteFile(file) { }
+                            }
+                            scope.launch {
+                                snackbar.showSnackbar(vm.archiveOpMessage(r.exceptionOrNull(), "Extracted", "Extraction failed"))
+                            }
                         }
                     }
-                }) { Text("Extract") }
+                ) { Text("Extract") }
             },
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -837,6 +905,80 @@ fun BrowserScreen(
                 }
             }
         )
+    }
+
+    if (showFolderPicker) {
+        FolderPickerDialog(
+            startDir = extractCustomDir ?: pendingExtract?.parentFile ?: state.currentDir,
+            onPick = {
+                extractCustomDir = it
+                extractDest = ExtractDest.CUSTOM
+                showFolderPicker = false
+            },
+            onDismiss = { showFolderPicker = false }
+        )
+    }
+
+    externalFile?.let { file ->
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(onDismissRequest = onExternalHandled, sheetState = sheetState) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    file.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    file.parentFile?.absolutePath ?: "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(8.dp))
+                if (FormatRegistry.isArchive(file.extension)) {
+                    SheetActionRow(Icons.Filled.Visibility, "Preview") {
+                        onExternalHandled()
+                        vm.openPreview(file)
+                    }
+                    SheetActionRow(Icons.Filled.FolderOpen, "Extract") {
+                        pendingExtract = file
+                        onExternalHandled()
+                    }
+                    SheetActionRow(Icons.Filled.Verified, "Verify") {
+                        onExternalHandled()
+                        vm.verifyArchive(file)
+                    }
+                }
+                SheetActionRow(Icons.Filled.OpenInNew, "Open with") {
+                    scope.launch {
+                        val mime = FormatRegistry.forExtension(file.extension).mime
+                        openWithApps = queryOpenWith(context, file, mime)
+                        openWithFile = file
+                    }
+                    onExternalHandled()
+                }
+                SheetActionRow(Icons.Filled.Share, "Share") {
+                    shareFiles(context, listOf(file))
+                    onExternalHandled()
+                }
+                SheetActionRow(Icons.Filled.Info, "Properties") {
+                    propsFile = file
+                    onExternalHandled()
+                }
+                SheetActionRow(Icons.Filled.ContentCopy, "Copy path") {
+                    copyPaths(context, listOf(file), quoteCopyPath)
+                    onExternalHandled()
+                }
+            }
+        }
     }
 
     preview.file?.let { file ->
@@ -1919,6 +2061,122 @@ private fun ClipboardFloatingBar(
             }
         }
     }
+}
+
+@Composable
+private fun SheetActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(16.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+private fun ExtractDestRow(
+    selected: Boolean,
+    title: String,
+    subtitle: String,
+    onSelect: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun FolderPickerDialog(
+    startDir: File,
+    onPick: (File) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var current by remember { mutableStateOf(startDir) }
+    val dirs by produceState(initialValue = emptyList<File>(), current) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                current.listFiles()
+                    ?.filter { it.isDirectory && !it.name.startsWith(".") }
+                    ?.sortedBy { it.name.lowercase() }
+                    ?: emptyList()
+            }.getOrDefault(emptyList())
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Filled.FolderOpen, null) },
+        title = { Text("Choose folder", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { current.parentFile?.let { current = it } },
+                        enabled = current.parentFile != null
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up")
+                    }
+                    Text(
+                        current.absolutePath,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                HorizontalDivider()
+                if (dirs.isEmpty()) {
+                    Text(
+                        "No subfolders",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                        items(dirs, key = { it.absolutePath }) { dir ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { current = dir }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(12.dp))
+                                Text(dir.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { Button(onClick = { onPick(current) }) { Text("Select this folder") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

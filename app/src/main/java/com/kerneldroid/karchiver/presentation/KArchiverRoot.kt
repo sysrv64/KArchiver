@@ -217,7 +217,10 @@ private fun DeviceDrawerRow(
 }
 
 @Composable
-fun KArchiverRoot() {
+fun KArchiverRoot(
+    incomingFile: File? = null,
+    onIncomingHandled: () -> Unit = {}
+) {
     val context = LocalContext.current
     val settingsRepo = remember { SettingsRepository(context.applicationContext) }
     val settings by produceState<AppSettings?>(initialValue = null, settingsRepo) {
@@ -259,6 +262,24 @@ fun KArchiverRoot() {
     var tabMenuId by remember { mutableStateOf<String?>(null) }
     var emptyMenu by remember { mutableStateOf(false) }
     var restorePress by remember { mutableStateOf<Offset?>(null) }
+    var externalSheetFile by remember { mutableStateOf<File?>(null) }
+
+    LaunchedEffect(incomingFile, ready) {
+        val file = incomingFile ?: return@LaunchedEffect
+        if (!ready) return@LaunchedEffect
+        val cacheRoot = context.cacheDir.absolutePath
+        val parent = file.parentFile
+        if (parent != null && parent.isDirectory && !file.absolutePath.startsWith(cacheRoot)) {
+            vm.navigateTo(parent)
+            navController.navigate(RootRoute.BROWSER) {
+                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+        externalSheetFile = file
+        onIncomingHandled()
+    }
 
     fun openDrawer() {
         drawerScope.launch { drawerState.open() }
@@ -559,6 +580,8 @@ fun KArchiverRoot() {
                 rarEnabled = settings?.rarEnabled == true,
                 autoRefresh = settings?.autoRefresh == true,
                 equalShapes = settings?.equalShapes == true,
+                externalFile = externalSheetFile,
+                onExternalHandled = { externalSheetFile = null },
                 barLifted = barLifted,
                 onToggleBar = { barLifted = !barLifted },
                 onOpenDrawer = ::openDrawer,

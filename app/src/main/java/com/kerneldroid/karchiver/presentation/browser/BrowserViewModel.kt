@@ -969,6 +969,20 @@ class BrowserViewModel(
         }
     }
 
+    fun deleteFile(file: File, onDone: (Result<Unit>) -> Unit = {}) {
+        viewModelScope.launch {
+            val trash = trashRepo
+            val r = if (_state.value.trashEnabled && trash != null) {
+                val report = trash.trash(listOf(file), elevationEngine())
+                if (report.isComplete) Result.success(Unit)
+                else Result.failure(Exception("Could not move to Trash"))
+            } else {
+                repo.delete(listOf(file), elevationEngine())
+            }
+            refresh(); onDone(r)
+        }
+    }
+
     fun createFolder(name: String, onDone: (Result<Unit>) -> Unit = {}) {
         val trimmed = name.trim(); if (trimmed.isEmpty()) return
         viewModelScope.launch {
@@ -1004,6 +1018,16 @@ class BrowserViewModel(
     }
 
     fun startExtract(context: Context, file: File, password: String = "", onDone: (Result<Unit>) -> Unit = {}) {
+        startExtractTo(context, file, File(file.parentFile, nameWithoutArchiveExtension(file.name)), password, onDone)
+    }
+
+    fun startExtractTo(
+        context: Context,
+        file: File,
+        destDir: File,
+        password: String = "",
+        onDone: (Result<Unit>) -> Unit = {}
+    ) {
         if (isRarArchive(file) && !_state.value.rarEnabled) {
             onDone(Result.failure(RarDisabledException()))
             return
@@ -1016,7 +1040,7 @@ class BrowserViewModel(
             return
         }
         viewModelScope.launch {
-            val dest = File(file.parentFile, nameWithoutArchiveExtension(file.name))
+            val dest = destDir
             val existing = repo.listNames(dest, elevationEngine())
             val topLevel = if (existing.isEmpty()) {
                 emptyList()

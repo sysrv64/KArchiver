@@ -14,6 +14,8 @@ Android file manager built around archives: browse storage, open archives withou
 - Recents: the newest files and folders from every storage volume in one list.
 - Archive explorer: browse ZIP, 7Z, TAR family and RAR without extracting; in-place add, rename and delete for ZIP, TAR family and 7Z.
 - Copy and extract with conflict handling: replace, skip, or keep both (`name (1).ext`).
+- Extract dialog with a destination chooser: into the current folder, into a new folder named after the archive, or into any folder you pick, plus an option to delete the archive afterwards.
+- Opening an archive from another app jumps to its folder and shows an action sheet (Preview, Extract, Verify, Open with, Share, Properties, Copy path).
 - Long operations run in a foreground service with progress, speed, ETA, cancel and a stall watchdog.
 - Search by name, extension, date, size and type, plus `content:` for file or entry contents and `archive:` for entry names inside archives.
 - File properties: permissions, rename, and modified date with a Material 3 date picker.

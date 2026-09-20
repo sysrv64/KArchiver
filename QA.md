@@ -63,6 +63,12 @@ Yes. Turn on Settings → Files → **Quote copied paths** (off by default) and 
 **Why are all the grid cells the same size?**
 Turn on Settings → Files → **Equal grid cells** (off by default) and every grid cell gets the same size regardless of the name. Names are then shown on one line and long ones scroll every few seconds so you can still read them.
 
+**Where does Extract put my files?**
+Pressing **Extract** opens a dialog that asks for the destination: **Here** (the archive's own folder), **New folder** (a subfolder named after the archive), or **Choose folder** (pick any folder in the built-in picker). The same dialog takes a password if the archive needs one and has a **Delete archive after extraction** checkbox. If a file with the same name already exists in the destination, the usual conflict dialog (replace / skip / keep both) appears.
+
+**What happens when I open a zip from another app with KArchiver?**
+KArchiver jumps straight to the folder that contains the archive, so it is right there in context, and opens an action sheet for it: **Preview**, **Extract**, **Verify**, **Open with**, **Share**, **Properties** and **Copy path**. If the other app only hands over a content URI that cannot be mapped to a real path, the file is copied to the app cache first and the same sheet opens from there.
+
 **What is the Recents tab?**
 One list of the most recently changed files and folders from every mounted volume, newest first. It scans in the background with a folder budget and a time budget, shows progress while it runs, and stops early on very large storages. Tap a folder to open it in Files; tap a file to open it. Pull the refresh button in the top bar to scan again.
 
