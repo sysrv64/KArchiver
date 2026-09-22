@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Archive
@@ -124,16 +124,16 @@ fun ProcessesScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         item(key = "active-header") {
                             SectionLabel("Active", activeCount)
                         }
-                        items(active, key = { "active-${it.id}" }) { task ->
-                            ActiveTaskRow(task, context)
+                        itemsIndexed(active, key = { _, task -> "active-${task.id}" }) { index, task ->
+                            ActiveTaskRow(task, context, index, active.size)
                         }
                     }
                     if (finished.isNotEmpty()) {
                         item(key = "finished-header") {
                             SectionLabel("Finished", finished.size)
                         }
-                        items(finished, key = { "finished-${it.id}" }) { task ->
-                            FinishedTaskRow(task)
+                        itemsIndexed(finished, key = { _, task -> "finished-${task.id}" }) { index, task ->
+                            FinishedTaskRow(task, index, finished.size)
                         }
                     }
                 }
@@ -168,12 +168,12 @@ private fun SectionLabel(title: String, count: Int) {
 }
 
 @Composable
-private fun ActiveTaskRow(task: ArchiveTask, context: android.content.Context) {
+private fun ActiveTaskRow(task: ArchiveTask, context: android.content.Context, index: Int, count: Int) {
     val statusLabel = activeStatusLabel(task.status)
     val fraction = task.fraction
     SegmentedListItem(
         onClick = {},
-        shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         colors = ListItemDefaults.segmentedColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
@@ -239,7 +239,7 @@ private fun ActiveTaskRow(task: ArchiveTask, context: android.content.Context) {
 }
 
 @Composable
-private fun FinishedTaskRow(task: ArchiveTask) {
+private fun FinishedTaskRow(task: ArchiveTask, index: Int, count: Int) {
     val statusLabel = finishedStatusLabel(task.status)
     val statusColor = when (task.status) {
         TaskStatus.DONE -> MaterialTheme.colorScheme.primary
@@ -248,7 +248,7 @@ private fun FinishedTaskRow(task: ArchiveTask) {
     }
     SegmentedListItem(
         onClick = {},
-        shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         colors = ListItemDefaults.segmentedColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
