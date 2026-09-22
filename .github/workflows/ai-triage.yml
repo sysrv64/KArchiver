@@ -28,7 +28,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Run AI Triage
+      - name: Run AI Triage Bot
         uses: sysv86/ai-triage-bot@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
