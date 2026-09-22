@@ -506,7 +506,7 @@ class FileSystemRepository {
         }
     }
 
-    suspend fun compress(sources: List<File>, dest: File, format: CompressFormat = CompressFormat.ZIP, password: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun compress(sources: List<File>, dest: File, format: CompressFormat = CompressFormat.ZIP, password: String? = null, taskId: Long = 0L): Result<Unit> = withContext(Dispatchers.IO) {
         val fixed = File(dest.parentFile, normalizeArchiveName(dest.name, format))
         val bridge = if (safAutoFallback) safBridge else null
         val tmp = tempDir
@@ -559,9 +559,9 @@ class FileSystemRepository {
             } else {
                 val srcPaths = effectiveSources.map { it.absolutePath }.toTypedArray()
                 val code = if (password.isNullOrEmpty()) {
-                    RustBridge.compress(srcPaths, outFile.absolutePath)
+                    RustBridge.compress(taskId, srcPaths, outFile.absolutePath)
                 } else {
-                    RustBridge.compressWithPassword(srcPaths, outFile.absolutePath, password)
+                    RustBridge.compressWithPassword(taskId, srcPaths, outFile.absolutePath, password)
                 }
                 if (code != 0) error("Rust compress failed code=$code")
             }
@@ -590,21 +590,22 @@ class FileSystemRepository {
         password: String? = null,
         elevated: ElevatedFS? = null,
         elevationMode: String = "off",
-        onlyNames: List<String>? = null
+        onlyNames: List<String>? = null,
+        taskId: Long = 0L
     ): Result<Unit> = withContext(Dispatchers.IO) {
         if (onlyNames != null && onlyNames.isEmpty()) return@withContext Result.success(Unit)
         runCatching {
-            normalExtract(archive, destDir, password, onlyNames)
+            normalExtract(archive, destDir, password, onlyNames, taskId)
         }.recoverCatching { e ->
-            if (onlyNames == null && tryPfdExtract(archive, destDir, password)) return@recoverCatching
-            if (trySafExtract(archive, destDir, password, onlyNames)) return@recoverCatching
+            if (onlyNames == null && tryPfdExtract(archive, destDir, password, taskId)) return@recoverCatching
+            if (trySafExtract(archive, destDir, password, onlyNames, taskId)) return@recoverCatching
             val eng = elevated ?: throw e
             if (archive.canRead()) throw e
-            extractElevated(archive, destDir, password, eng, elevationMode, onlyNames).getOrThrow()
+            extractElevated(archive, destDir, password, eng, elevationMode, onlyNames, taskId).getOrThrow()
         }
     }
 
-    private suspend fun tryPfdExtract(archive: File, destDir: File, password: String?): Boolean {
+    private suspend fun tryPfdExtract(archive: File, destDir: File, password: String?, taskId: Long = 0L): Boolean {
         if (!safAutoFallback) return false
         val bridge = safBridge ?: return false
         if (!RustBridge.isLoaded()) return false
@@ -615,9 +616,9 @@ class FileSystemRepository {
         val pfd = bridge.openReadFdFor(archive, safVolumes) ?: return false
         return try {
             val code = if (password.isNullOrEmpty()) {
-                RustBridge.extractFd(pfd.fd, destDir.absolutePath)
+                RustBridge.extractFd(taskId, pfd.fd, destDir.absolutePath)
             } else {
-                RustBridge.extractWithPasswordFd(pfd.fd, destDir.absolutePath, password)
+                RustBridge.extractWithPasswordFd(taskId, pfd.fd, destDir.absolutePath, password)
             }
             code == 0
         } catch (_: Exception) {
@@ -631,7 +632,8 @@ class FileSystemRepository {
         archive: File,
         destDir: File,
         password: String?,
-        onlyNames: List<String>? = null
+        onlyNames: List<String>? = null,
+        taskId: Long = 0L
     ): Boolean {
         if (!safAutoFallback) return false
         val bridge = safBridge ?: return false
@@ -645,7 +647,7 @@ class FileSystemRepository {
                 val effective = bridge.stageArchiveIn(archive, safVolumes, staging) ?: archive
                 if (destDir.canWrite()) {
                     try {
-                        normalExtract(effective, destDir, password, onlyNames)
+                        normalExtract(effective, destDir, password, onlyNames, taskId)
                         true
                     } catch (_: Exception) {
                         false
@@ -655,7 +657,7 @@ class FileSystemRepository {
                     work.mkdirs()
                     if (!work.isDirectory) return false
                     try {
-                        normalExtract(effective, work, password, onlyNames)
+                        normalExtract(effective, work, password, onlyNames, taskId)
                     } catch (_: Exception) {
                         return false
                     }
@@ -676,11 +678,12 @@ class FileSystemRepository {
         archive: File,
         destDir: File,
         password: String?,
-        onlyNames: List<String>? = null
+        onlyNames: List<String>? = null,
+        taskId: Long = 0L
     ) {
         destDir.mkdirs()
         if (onlyNames != null) {
-            extractFilteredLocal(archive, onlyNames, destDir, password)
+            extractFilteredLocal(archive, onlyNames, destDir, password, taskId)
             return
         }
         if (!RustBridge.isLoaded()) {
@@ -688,9 +691,9 @@ class FileSystemRepository {
             fallbackUnzip(archive, destDir)
         } else {
             val code = if (password.isNullOrEmpty()) {
-                RustBridge.extract(archive.absolutePath, destDir.absolutePath)
+                RustBridge.extract(taskId, archive.absolutePath, destDir.absolutePath)
             } else {
-                RustBridge.extractWithPassword(archive.absolutePath, destDir.absolutePath, password)
+                RustBridge.extractWithPassword(taskId, archive.absolutePath, destDir.absolutePath, password)
             }
             if (code != 0) error("Rust extract failed code=$code")
         }
@@ -702,7 +705,8 @@ class FileSystemRepository {
         password: String?,
         eng: ElevatedFS,
         mode: String,
-        onlyNames: List<String>? = null
+        onlyNames: List<String>? = null,
+        taskId: Long = 0L
     ): Result<Unit> {
         try {
             requireCaps(archive, mode, (eng as? ShizukuEngine)?.shizukuUid())
@@ -713,16 +717,16 @@ class FileSystemRepository {
                     try {
                         if (onlyNames == null) {
                             val code = if (password.isNullOrEmpty()) {
-                                RustBridge.extractFd(pfd.fd, destDir.absolutePath)
+                                RustBridge.extractFd(taskId, pfd.fd, destDir.absolutePath)
                             } else {
-                                RustBridge.extractWithPasswordFd(pfd.fd, destDir.absolutePath, password)
+                                RustBridge.extractWithPasswordFd(taskId, pfd.fd, destDir.absolutePath, password)
                             }
                             if (code != 0) error("Rust extract failed code=$code")
                         } else {
                             val staged = stagePfd(pfd, tempDir ?: error("No temp dir"), "elevated-" + archive.name)
                                 ?: error("Cannot read file")
                             try {
-                                normalExtract(staged, destDir, password, onlyNames)
+                                normalExtract(staged, destDir, password, onlyNames, taskId)
                             } finally {
                                 try { staged.delete() } catch (_: Exception) {
                                 }
@@ -738,7 +742,7 @@ class FileSystemRepository {
                     val staged = File(tmp, "elevated-" + archive.name)
                     if (!eng.copyInto(archive, staged)) error("Cannot read file")
                     try {
-                        normalExtract(staged, destDir, password, onlyNames)
+                        normalExtract(staged, destDir, password, onlyNames, taskId)
                     } finally {
                         staged.delete()
                     }
@@ -1234,21 +1238,21 @@ class FileSystemRepository {
             }
             val bridge = if (safAutoFallback) safBridge else null
             if (destDir.canWrite()) {
-                extractFilteredLocal(archive, names, destDir, password)
+                extractFilteredLocal(archive, names, destDir, password, 0L)
             } else if (bridge != null && trySafExtractEntries(archive, names, destDir, password, bridge)) {
                 return@runCatching
             } else {
-                extractFilteredLocal(archive, names, destDir, password)
+                extractFilteredLocal(archive, names, destDir, password, 0L)
             }
         }
     }
 
-    private fun extractFilteredLocal(archive: File, names: List<String>, destDir: File, password: String?) {
+    private fun extractFilteredLocal(archive: File, names: List<String>, destDir: File, password: String?, taskId: Long = 0L) {
         if (RustBridge.isLoaded()) {
             if (password.isNullOrEmpty()) {
-                RustBridge.extractFiltered(archive.absolutePath, destDir.absolutePath, names.toTypedArray())
+                RustBridge.extractFiltered(taskId, archive.absolutePath, destDir.absolutePath, names.toTypedArray())
             } else {
-                RustBridge.extractFilteredWithPassword(archive.absolutePath, destDir.absolutePath, names.toTypedArray(), password)
+                RustBridge.extractFilteredWithPassword(taskId, archive.absolutePath, destDir.absolutePath, names.toTypedArray(), password)
             }
             return
         }
@@ -1300,9 +1304,9 @@ class FileSystemRepository {
                 work.mkdirs()
                 if (!work.isDirectory) return false
                 if (password.isNullOrEmpty()) {
-                    RustBridge.extractFiltered(effective.absolutePath, work.absolutePath, names.toTypedArray())
+                    RustBridge.extractFiltered(0L, effective.absolutePath, work.absolutePath, names.toTypedArray())
                 } else {
-                    RustBridge.extractFilteredWithPassword(effective.absolutePath, work.absolutePath, names.toTypedArray(), password)
+                    RustBridge.extractFilteredWithPassword(0L, effective.absolutePath, work.absolutePath, names.toTypedArray(), password)
                 }
                 bridge.copyStagedOut(work, destDir, safVolumes)
             } finally {
@@ -1328,19 +1332,19 @@ object RustBridge {
         return result
     }
     @JvmStatic external fun setLogFile(path: String)
-    @JvmStatic external fun compress(srcPaths: Array<String>, destPath: String): Int
-    @JvmStatic external fun extract(archivePath: String, destDir: String): Int
-    @JvmStatic external fun compressWithPassword(srcPaths: Array<String>, destPath: String, password: String): Int
-    @JvmStatic external fun extractWithPassword(archivePath: String, destDir: String, password: String): Int
-    @JvmStatic external fun extractFiltered(archivePath: String, destDir: String, names: Array<String>)
-    @JvmStatic external fun extractFilteredWithPassword(archivePath: String, destDir: String, names: Array<String>, password: String)
+    @JvmStatic external fun compress(taskId: Long, srcPaths: Array<String>, destPath: String): Int
+    @JvmStatic external fun compressWithPassword(taskId: Long, srcPaths: Array<String>, destPath: String, password: String): Int
+    @JvmStatic external fun extract(taskId: Long, archivePath: String, destDir: String): Int
+    @JvmStatic external fun extractWithPassword(taskId: Long, archivePath: String, destDir: String, password: String): Int
+    @JvmStatic external fun extractFiltered(taskId: Long, archivePath: String, destDir: String, names: Array<String>)
+    @JvmStatic external fun extractFilteredWithPassword(taskId: Long, archivePath: String, destDir: String, names: Array<String>, password: String)
     @JvmStatic external fun listArchive(archivePath: String): Array<String>
     @JvmStatic external fun listArchiveDetailed(archivePath: String): String
     @JvmStatic external fun listArchiveDetailedWithPassword(archivePath: String, password: String): String
     @JvmStatic external fun testArchive(archivePath: String): String
     @JvmStatic external fun testArchiveWithPassword(archivePath: String, password: String): String
-    @JvmStatic external fun extractFd(fd: Int, destDir: String): Int
-    @JvmStatic external fun extractWithPasswordFd(fd: Int, destDir: String, password: String): Int
+    @JvmStatic external fun extractFd(taskId: Long, fd: Int, destDir: String): Int
+    @JvmStatic external fun extractWithPasswordFd(taskId: Long, fd: Int, destDir: String, password: String): Int
     @JvmStatic external fun listArchiveDetailedFd(fd: Int): String
     @JvmStatic external fun listArchiveDetailedWithPasswordFd(fd: Int, password: String): String
     @JvmStatic external fun testArchiveFd(fd: Int): String
@@ -1356,5 +1360,7 @@ object RustBridge {
     @JvmStatic external fun setArchiveEntryMeta(archivePath: String, name: String, modifiedMillis: Long, mode: Int, password: String)
     @JvmStatic external fun setArchiveEntryMetaFd(fd: Int, name: String, modifiedMillis: Long, mode: Int, password: String)
     @JvmStatic external fun getProgress(): LongArray
+    @JvmStatic external fun getTaskProgress(taskId: Long): LongArray
     @JvmStatic external fun cancel()
+    @JvmStatic external fun cancelTask(taskId: Long)
 }

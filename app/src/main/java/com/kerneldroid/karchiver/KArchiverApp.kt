@@ -7,6 +7,7 @@ import coil3.SingletonImageLoader
 import coil3.svg.SvgDecoder
 import coil3.video.VideoFrameDecoder
 import com.kerneldroid.karchiver.data.RustBridge
+import com.kerneldroid.karchiver.data.archive.TaskManager
 import com.kerneldroid.karchiver.data.elevation.ShizukuEngine
 import com.kerneldroid.karchiver.data.log.KLog
 import com.kerneldroid.karchiver.data.log.LogReport
@@ -14,6 +15,7 @@ import com.kerneldroid.karchiver.data.log.LogReport
 class KArchiverApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
+        TaskManager.attach(this)
         ShizukuEngine.init(this)
         try {
             System.loadLibrary("karchiver_rs")

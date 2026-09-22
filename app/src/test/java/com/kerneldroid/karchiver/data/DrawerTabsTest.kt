@@ -38,6 +38,16 @@ class DrawerTabsTest {
     }
 
     @Test
+    fun processesTabIsHiddenByDefaultButParseable() {
+        assertEquals("processes", DRAWER_TAB_PROCESSES)
+        assertFalse(DEFAULT_DRAWER_TABS.contains(DRAWER_TAB_PROCESSES))
+        assertEquals(
+            listOf("files", "processes", "settings"),
+            parseDrawerTabs("files\n${DRAWER_TAB_PROCESSES}\nsettings")
+        )
+    }
+
+    @Test
     fun migrationKeepsHistoryAndTrashPreferences() {
         val tabs = migrateDrawerTabs(historyEnabled = true, trashEnabled = true)
         assertEquals(

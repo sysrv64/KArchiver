@@ -3,11 +3,13 @@
 //! This is the single place where "is this entry allowed to be written?" is
 //! decided, so all formats get the same traversal / symlink / zip-bomb rules.
 
+use std::cell::Cell;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::{ArchiveError, CANCEL_MARKER, LIMIT_MARKER, Result};
@@ -21,38 +23,177 @@ pub const CANCEL_CHECK_INTERVAL: u64 = 65536;
 pub const CODE_OK: i32 = 0;
 pub const CODE_CANCELLED: i32 = 2;
 
-static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
-static PROGRESS_DONE: AtomicU64 = AtomicU64::new(0);
-static PROGRESS_TOTAL: AtomicU64 = AtomicU64::new(0);
+/// Identifier for an in-flight compress/extract task. `0` is the default task
+/// used by the list/test/delete/rename/add/meta entry points.
+pub type TaskId = u64;
+
+/// Progress and cancellation state for a single task.
+#[derive(Default)]
+pub struct TaskState {
+    done: AtomicU64,
+    total: AtomicU64,
+    cancel: AtomicBool,
+}
+
+impl TaskState {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reset progress to `0/total` (does not touch the cancel flag).
+    pub fn reset(&self, total: u64) {
+        self.done.store(0, Ordering::Relaxed);
+        self.total.store(total, Ordering::Relaxed);
+    }
+
+    /// Advance the done counter, saturating instead of wrapping.
+    pub fn add(&self, n: u64) {
+        let _ = self
+            .done
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                Some(v.saturating_add(n))
+            });
+    }
+
+    /// Current `(done, total)` counters.
+    pub fn get(&self) -> (u64, u64) {
+        (
+            self.done.load(Ordering::Relaxed),
+            self.total.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Ask this task's worker to stop.
+    pub fn request_cancel(&self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+
+    /// Clear this task's cancellation request.
+    pub fn clear_cancel(&self) {
+        self.cancel.store(false, Ordering::Relaxed);
+    }
+
+    /// Whether this task has been asked to stop.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
+}
+
+static TASKS: OnceLock<Mutex<HashMap<TaskId, Arc<TaskState>>>> = OnceLock::new();
+
+fn tasks() -> &'static Mutex<HashMap<TaskId, Arc<TaskState>>> {
+    TASKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Return the state for `id`, creating it if it does not exist yet.
+pub fn task_register(id: TaskId) -> Arc<TaskState> {
+    let mut map = tasks().lock().unwrap_or_else(|e| e.into_inner());
+    map.entry(id)
+        .or_insert_with(|| Arc::new(TaskState::new()))
+        .clone()
+}
+
+/// Drop `id` from the registry. No-op if it is absent.
+pub fn task_unregister(id: TaskId) {
+    if let Ok(mut map) = tasks().lock() {
+        map.remove(&id);
+    }
+}
+
+/// Look up the state for `id`, if it exists.
+pub fn task_state(id: TaskId) -> Option<Arc<TaskState>> {
+    tasks().lock().ok().and_then(|map| map.get(&id).cloned())
+}
+
+/// Progress for `id`, or `(0, 0)` if the task is unknown.
+pub fn task_progress_get(id: TaskId) -> (u64, u64) {
+    task_state(id).map(|s| s.get()).unwrap_or((0, 0))
+}
+
+/// Request cancellation of `id`. No-op if the task is unknown.
+pub fn task_request_cancel(id: TaskId) {
+    if let Some(state) = task_state(id) {
+        state.request_cancel();
+    }
+}
+
+/// Reset `id`'s progress, registering the task if needed.
+pub fn task_reset(id: TaskId, total: u64) {
+    task_register(id).reset(total);
+}
+
+/// Advance `id`'s progress. No-op if the task is unknown.
+pub fn task_add(id: TaskId, n: u64) {
+    if let Some(state) = task_state(id) {
+        state.add(n);
+    }
+}
+
+thread_local! {
+    static CURRENT_TASK: Cell<TaskId> = const { Cell::new(0) };
+}
+
+/// Make `id` the task the calling thread's backend code reports against.
+pub fn set_current_task(id: TaskId) {
+    CURRENT_TASK.with(|current| current.set(id));
+}
+
+/// The calling thread's current task, or `0` when unset.
+pub fn current_task() -> TaskId {
+    CURRENT_TASK.with(Cell::get)
+}
+
+/// Binds a blocking backend call to one task for the lifetime of the guard.
+///
+/// On creation the task is registered, made current for this thread, its
+/// cancel flag is cleared and its progress reset. Dropping restores the
+/// thread's current task to `0` and unregisters this task.
+pub struct TaskGuard(TaskId);
+
+impl TaskGuard {
+    /// Bind the calling thread to `id`.
+    pub fn new(id: TaskId) -> Self {
+        let state = task_register(id);
+        set_current_task(id);
+        state.clear_cancel();
+        state.reset(0);
+        Self(id)
+    }
+}
+
+impl Drop for TaskGuard {
+    fn drop(&mut self) {
+        set_current_task(0);
+        task_unregister(self.0);
+    }
+}
 
 pub fn progress_reset(total: u64) {
-    PROGRESS_DONE.store(0, Ordering::Relaxed);
-    PROGRESS_TOTAL.store(total, Ordering::Relaxed);
+    task_register(current_task()).reset(total);
 }
 
 pub fn progress_add(n: u64) {
-    let _ = PROGRESS_DONE.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
-        Some(v.saturating_add(n))
-    });
+    task_add(current_task(), n);
 }
 
 pub fn progress_get() -> (u64, u64) {
-    (
-        PROGRESS_DONE.load(Ordering::Relaxed),
-        PROGRESS_TOTAL.load(Ordering::Relaxed),
-    )
+    task_progress_get(current_task())
 }
 
 pub fn request_cancel() {
-    CANCEL_FLAG.store(true, Ordering::Relaxed);
+    task_register(current_task()).request_cancel();
 }
 
 pub fn clear_cancel() {
-    CANCEL_FLAG.store(false, Ordering::Relaxed);
+    if let Some(state) = task_state(current_task()) {
+        state.clear_cancel();
+    }
 }
 
 pub fn is_cancelled() -> bool {
-    CANCEL_FLAG.load(Ordering::Relaxed)
+    task_state(current_task())
+        .map(|state| state.is_cancelled())
+        .unwrap_or(false)
 }
 
 pub fn check_cancelled() -> Result<()> {
@@ -769,5 +910,58 @@ mod tests {
         assert_eq!(r.count(), 64);
         assert_eq!(progress_get(), (64, 1000));
         progress_reset(0);
+    }
+
+    #[test]
+    fn task_progress_is_isolated_per_task() {
+        let _guard = PROGRESS_TEST_LOCK.lock().unwrap();
+        let a: TaskId = 0x00A1;
+        let b: TaskId = 0x00B2;
+
+        set_current_task(a);
+        progress_reset(100);
+        progress_add(30);
+
+        set_current_task(b);
+        progress_reset(200);
+        progress_add(5);
+
+        assert_eq!(task_progress_get(a), (30, 100));
+        assert_eq!(task_progress_get(b), (5, 200));
+
+        set_current_task(0);
+        task_unregister(a);
+        task_unregister(b);
+    }
+
+    #[test]
+    fn task_cancel_is_isolated_and_guard_resets_current() {
+        let _guard = PROGRESS_TEST_LOCK.lock().unwrap();
+        let a: TaskId = 0x00A3;
+        let b: TaskId = 0x00B4;
+
+        set_current_task(a);
+        task_register(a);
+        set_current_task(b);
+        task_register(b);
+
+        set_current_task(b);
+        task_request_cancel(a);
+        assert!(!is_cancelled(), "cancelling task A must not cancel task B");
+
+        set_current_task(a);
+        assert!(is_cancelled(), "task A itself must be cancelled");
+        set_current_task(0);
+
+        assert_eq!(current_task(), 0);
+        {
+            let _task = TaskGuard::new(a);
+            assert_eq!(current_task(), a);
+            assert!(!is_cancelled(), "guard must clear the cancel flag");
+            assert_eq!(progress_get(), (0, 0));
+        }
+        assert_eq!(current_task(), 0);
+
+        task_unregister(b);
     }
 }

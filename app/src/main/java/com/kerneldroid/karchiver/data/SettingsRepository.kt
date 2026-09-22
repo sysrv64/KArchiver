@@ -18,6 +18,7 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK, OLED }
 
 const val DRAWER_TAB_TRASH = "trash"
 const val DRAWER_TAB_HISTORY = "history"
+const val DRAWER_TAB_PROCESSES = "processes"
 
 val DEFAULT_DRAWER_TABS = listOf("files", "home", "recents", "history", "settings")
 

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Settings
@@ -101,6 +102,7 @@ import com.kerneldroid.karchiver.presentation.components.CustomNavigationDrawerI
 import com.kerneldroid.karchiver.presentation.components.ReorderableColumn
 import com.kerneldroid.karchiver.presentation.home.HomeScreen
 import com.kerneldroid.karchiver.presentation.history.HistoryScreen
+import com.kerneldroid.karchiver.presentation.processes.ProcessesScreen
 import com.kerneldroid.karchiver.presentation.recents.RecentsScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsAboutScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsAppearanceScreen
@@ -124,6 +126,7 @@ private object RootRoute {
     const val RECENTS = "recents"
     const val TRASH = "trash"
     const val SETTINGS = "settings"
+    const val PROCESSES = "processes"
 }
 
 private val DrawerSheetWidth = 280.dp
@@ -143,6 +146,7 @@ private enum class DrawerTab(
     RECENTS("recents", RootRoute.RECENTS, "Recents", Icons.Filled.Schedule),
     HISTORY("history", RootRoute.HISTORY, "History", Icons.Filled.History),
     TRASH("trash", RootRoute.TRASH, "Trash", Icons.Filled.Delete),
+    PROCESSES("processes", RootRoute.PROCESSES, "Processes", Icons.Filled.Memory),
     SETTINGS("settings", RootRoute.SETTINGS, "Settings", Icons.Filled.Settings, mandatory = true);
 
     companion object {
@@ -239,8 +243,9 @@ fun KArchiverRoot(
     val haptics = LocalHapticFeedback.current
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
-    val activeOp by vm.archiveOp.collectAsStateWithLifecycle()
-    val progressDialogVisible by vm.progressDialogVisible.collectAsStateWithLifecycle()
+    val tasks by vm.tasks.collectAsStateWithLifecycle()
+    val activeTaskCount by vm.activeTaskCount.collectAsStateWithLifecycle()
+    val progressTaskId by vm.progressTaskId.collectAsStateWithLifecycle()
     val storageVolumes by vm.volumes.collectAsStateWithLifecycle()
     val safGrants by vm.safGrants.collectAsStateWithLifecycle()
     val forcedSaf by vm.forcedSaf.collectAsStateWithLifecycle()
@@ -638,6 +643,9 @@ fun KArchiverRoot(
                 onToggleBar = { barLifted = !barLifted }
             )
         }
+        composable(RootRoute.PROCESSES) {
+            ProcessesScreen(onBack = { navController.popBackStack() })
+        }
         composable(RootRoute.SETTINGS) {
             SettingsScreen(
                 settings = settings ?: AppSettings(),
@@ -713,14 +721,10 @@ fun KArchiverRoot(
             )
         }
     }
-    if (activeOp != null && !progressDialogVisible && currentRoute != RootRoute.BROWSER) {
-        val op = activeOp
+    if (activeTaskCount > 0 && progressTaskId == null && currentRoute != RootRoute.BROWSER) {
+        val op = tasks.firstOrNull { it.isActive }
         if (op != null) {
-            val fraction = if (op.total > 0L) {
-                (op.done.toFloat() / op.total.toFloat()).coerceIn(0f, 1f)
-            } else {
-                null
-            }
+            val fraction = op.fraction
             Surface(
                 onClick = {
                     navController.navigate(RootRoute.BROWSER) {
@@ -751,7 +755,7 @@ fun KArchiverRoot(
                             strokeWidth = 2.dp
                         )
                         Text(
-                            text = op.label + " • " + (fraction * 100).toInt() + "%",
+                            text = op.title + " • " + (fraction * 100).toInt() + "%",
                             style = MaterialTheme.typography.labelLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -763,7 +767,7 @@ fun KArchiverRoot(
                             strokeWidth = 2.dp
                         )
                         Text(
-                            text = op.label,
+                            text = op.title,
                             style = MaterialTheme.typography.labelLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

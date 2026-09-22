@@ -87,7 +87,8 @@ import com.kerneldroid.karchiver.data.isRarArchive
 import com.kerneldroid.karchiver.data.SortBy
 import com.kerneldroid.karchiver.data.nameWithoutArchiveExtension
 import com.kerneldroid.karchiver.data.normalizeArchiveName
-import com.kerneldroid.karchiver.data.archive.OpKind
+import com.kerneldroid.karchiver.data.archive.TaskKind
+import com.kerneldroid.karchiver.data.archive.TaskStatus
 import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
 import com.kerneldroid.karchiver.presentation.components.FileSearchField
 import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
@@ -132,8 +133,12 @@ fun BrowserScreen(
     val quoteCopyPath = LocalQuoteCopyPath.current
     val state by vm.state.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
-    val activeOp by vm.archiveOp.collectAsStateWithLifecycle()
-    val dialogVisible by vm.progressDialogVisible.collectAsStateWithLifecycle()
+    val tasks by vm.tasks.collectAsStateWithLifecycle()
+    val activeTaskCount by vm.activeTaskCount.collectAsStateWithLifecycle()
+    val progressTaskId by vm.progressTaskId.collectAsStateWithLifecycle()
+    val activeOp = tasks.firstOrNull { it.id == progressTaskId }
+    val dialogVisible = progressTaskId != null
+    val runningTask = tasks.firstOrNull { it.status == TaskStatus.RUNNING }
     val conflict by vm.conflict.collectAsStateWithLifecycle()
     val verifyActive by vm.verifyActive.collectAsStateWithLifecycle()
     val preview by vm.preview.collectAsStateWithLifecycle()
@@ -382,13 +387,9 @@ fun BrowserScreen(
                         onOpenVolumes = { showVolumePicker = true },
                         onToggleSearch = { searchActive = true },
                         onOpenSort = { showSortSheet = true },
-                        showProgress = activeOp != null && !dialogVisible,
-                        progressFraction = if (activeOp != null && activeOp!!.total > 0L) {
-                            (activeOp!!.done.toFloat() / activeOp!!.total.toFloat()).coerceIn(0f, 1f)
-                        } else {
-                            0f
-                        },
-                        progressDeterminate = (activeOp?.total ?: 0L) > 0L,
+                        showProgress = activeTaskCount > 0 && !dialogVisible,
+                        progressFraction = runningTask?.fraction ?: 0f,
+                        progressDeterminate = (runningTask?.total ?: 0L) > 0L,
                         onShowProgress = vm::showProgressDialog
                     )
                     Breadcrumbs(
@@ -1076,14 +1077,14 @@ fun BrowserScreen(
         val op = activeOp
         if (op != null && dialogVisible) {
             val hasTotal = op.total > 0L
-            val fraction = if (hasTotal) (op.done.toFloat() / op.total.toFloat()).coerceIn(0f, 1f) else 0f
+            val fraction = op.fraction ?: 0f
             val percent = (fraction * 100).toInt()
             AlertDialog(
                 onDismissRequest = {},
-                title = { Text(if (op.kind == OpKind.COMPRESS) "Compressing archive" else "Extracting archive") },
+                title = { Text(if (op.kind == TaskKind.COMPRESS) "Compressing archive" else "Extracting archive") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(op.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(op.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (hasTotal) {
                             LinearProgressIndicator(
                                 progress = { fraction },

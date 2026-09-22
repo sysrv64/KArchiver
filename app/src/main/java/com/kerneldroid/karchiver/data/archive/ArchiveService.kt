@@ -28,6 +28,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -46,33 +47,16 @@ class ArchiveService : Service() {
         const val EXTRA_PASSWORD = "extra_password"
         const val EXTRA_ELEVATION = "extra_elevation"
         const val EXTRA_ONLY_NAMES = "extra_only_names"
+        const val EXTRA_TASK_ID = "extra_task_id"
         const val CHANNEL_ID = "archive_ops"
         const val DONE_CHANNEL_ID = "archive_done"
         const val NOTIFICATION_ID = 1
         private const val STALL_TIMEOUT_MS = 5L * 60L * 1000L
+        private const val STALL_MESSAGE = "Operation stalled (no progress for 5 minutes)"
 
-        fun startCompress(
+        fun startExtractTask(
             context: Context,
-            sources: List<File>,
-            dest: File,
-            format: CompressFormat,
-            password: String?,
-            elevationMode: String
-        ) {
-            val intent = Intent(context, ArchiveService::class.java)
-            intent.action = ACTION_START
-            intent.putExtra(EXTRA_KIND, OpKind.COMPRESS.name)
-            intent.putExtra(EXTRA_LABEL, dest.name)
-            intent.putExtra(EXTRA_SOURCES, sources.map { it.absolutePath }.toTypedArray())
-            intent.putExtra(EXTRA_DEST, dest.absolutePath)
-            intent.putExtra(EXTRA_FORMAT, format.name)
-            intent.putExtra(EXTRA_PASSWORD, password)
-            intent.putExtra(EXTRA_ELEVATION, elevationMode)
-            context.startForegroundService(intent)
-        }
-
-        fun startExtract(
-            context: Context,
+            taskId: Long,
             archive: File,
             destDir: File,
             password: String?,
@@ -81,8 +65,9 @@ class ArchiveService : Service() {
         ) {
             val intent = Intent(context, ArchiveService::class.java)
             intent.action = ACTION_START
+            intent.putExtra(EXTRA_TASK_ID, taskId)
             intent.putExtra(EXTRA_KIND, OpKind.EXTRACT.name)
-            intent.putExtra(EXTRA_LABEL, archive.name + " -> " + destDir.name)
+            intent.putExtra(EXTRA_LABEL, archive.name)
             intent.putExtra(EXTRA_ARCHIVE, archive.absolutePath)
             intent.putExtra(EXTRA_DEST, destDir.absolutePath)
             intent.putExtra(EXTRA_PASSWORD, password)
@@ -93,205 +78,454 @@ class ArchiveService : Service() {
             context.startForegroundService(intent)
         }
 
-        fun cancel(context: Context) {
+        fun startCompressTask(
+            context: Context,
+            taskId: Long,
+            sources: List<File>,
+            dest: File,
+            format: CompressFormat,
+            password: String?,
+            elevationMode: String
+        ) {
+            val intent = Intent(context, ArchiveService::class.java)
+            intent.action = ACTION_START
+            intent.putExtra(EXTRA_TASK_ID, taskId)
+            intent.putExtra(EXTRA_KIND, OpKind.COMPRESS.name)
+            intent.putExtra(EXTRA_LABEL, dest.name)
+            intent.putExtra(EXTRA_SOURCES, sources.map { it.absolutePath }.toTypedArray())
+            intent.putExtra(EXTRA_DEST, dest.absolutePath)
+            intent.putExtra(EXTRA_FORMAT, format.name)
+            intent.putExtra(EXTRA_PASSWORD, password)
+            intent.putExtra(EXTRA_ELEVATION, elevationMode)
+            context.startForegroundService(intent)
+        }
+
+        fun cancelTask(context: Context, taskId: Long) {
+            val intent = Intent(context, ArchiveService::class.java)
+            intent.action = ACTION_CANCEL
+            intent.putExtra(EXTRA_TASK_ID, taskId)
+            context.startService(intent)
+        }
+
+        fun cancelAll(context: Context) {
             val intent = Intent(context, ArchiveService::class.java)
             intent.action = ACTION_CANCEL
             context.startService(intent)
         }
+
+        fun startCompress(
+            context: Context,
+            sources: List<File>,
+            dest: File,
+            format: CompressFormat,
+            password: String?,
+            elevationMode: String
+        ) {
+            val taskId = TaskManager.create(TaskKind.COMPRESS, dest.name, dest.name)
+            startCompressTask(context, taskId, sources, dest, format, password, elevationMode)
+        }
+
+        fun startExtract(
+            context: Context,
+            archive: File,
+            destDir: File,
+            password: String?,
+            elevationMode: String,
+            onlyNames: List<String>? = null
+        ) {
+            val taskId = TaskManager.create(TaskKind.EXTRACT, archive.name, destDir.absolutePath)
+            startExtractTask(context, taskId, archive, destDir, password, elevationMode, onlyNames)
+        }
+
+        fun cancel(context: Context) {
+            cancelAll(context)
+        }
     }
 
+    private class StallTracker(var lastChangeElapsed: Long) {
+        var lastDone: Long = 0L
+        var lastTotal: Long = 0L
+    }
+
+    private data class OpSpec(
+        val taskId: Long,
+        val kind: OpKind,
+        val label: String,
+        val srcPaths: List<String>?,
+        val archivePath: String?,
+        val destPath: String,
+        val formatName: String?,
+        val password: String?,
+        val elevationMode: String,
+        val onlyNames: List<String>?
+    )
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var scopeJob: Job? = null
-    private var owned = false
-    private var ownedKind: OpKind = OpKind.COMPRESS
-    private var ownedLabel: String = ""
+    private val lock = Any()
+    private val queue = ArrayDeque<Long>()
+    private val specs = HashMap<Long, OpSpec>()
+    private val jobs = HashMap<Long, Job>()
+    private val speedWindows = HashMap<Long, ArrayDeque<Pair<Long, Long>>>()
+    private val stallTrackers = HashMap<Long, StallTracker>()
+    private val stalledIds = HashSet<Long>()
+    private var pollJob: Job? = null
+    private var foregroundStarted = false
     private var wakeLock: PowerManager.WakeLock? = null
-    private val speedWindow = ArrayDeque<Pair<Long, Long>>()
-    private var stalledDetected = false
-    private var stallSinceElapsed = 0L
-    private var stallLastDone = 0L
-    private var stallLastTotal = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent != null && intent.action == ACTION_CANCEL) {
-            cancelCurrent()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_CANCEL -> {
+                val taskId = intent.getLongExtra(EXTRA_TASK_ID, 0L)
+                if (taskId > 0L) {
+                    cancelTask(taskId)
+                } else {
+                    cancelAll()
+                }
+                return START_NOT_STICKY
+            }
+            ACTION_START -> {
+                val spec = parseSpec(intent)
+                if (spec == null) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                synchronized(lock) {
+                    specs[spec.taskId] = spec
+                    if (!queue.contains(spec.taskId) && !jobs.containsKey(spec.taskId)) {
+                        queue.addLast(spec.taskId)
+                    }
+                }
+                ensureForeground()
+                startPolling()
+                acquireWakeLock()
+                pump()
+                return START_NOT_STICKY
+            }
+            else -> return START_NOT_STICKY
         }
-        if (intent == null || intent.action != ACTION_START) {
-            return START_NOT_STICKY
-        }
-        if (scopeJob?.isActive == true) {
-            return START_NOT_STICKY
-        }
-        val kindName = intent.getStringExtra(EXTRA_KIND)
-        val label = intent.getStringExtra(EXTRA_LABEL)
-        if (kindName.isNullOrEmpty() || label.isNullOrEmpty()) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+    }
+
+    private fun parseSpec(intent: Intent): OpSpec? {
+        val taskId = intent.getLongExtra(EXTRA_TASK_ID, 0L)
+        if (taskId <= 0L) return null
+        val kindName = intent.getStringExtra(EXTRA_KIND) ?: return null
         val kind = try {
             OpKind.valueOf(kindName)
         } catch (_: Exception) {
-            stopSelf()
-            return START_NOT_STICKY
+            return null
         }
+        val label = intent.getStringExtra(EXTRA_LABEL) ?: ""
         val password = intent.getStringExtra(EXTRA_PASSWORD)
         val elevationMode = intent.getStringExtra(EXTRA_ELEVATION) ?: "off"
-        val srcPaths: Array<String>?
-        val archiveStr: String?
-        val destStr: String?
-        val formatName: String?
-        var onlyNames: Array<String>? = null
-        when (kind) {
+        val dest = intent.getStringExtra(EXTRA_DEST) ?: return null
+        return when (kind) {
             OpKind.COMPRESS -> {
-                srcPaths = intent.getStringArrayExtra(EXTRA_SOURCES)
-                destStr = intent.getStringExtra(EXTRA_DEST)
-                formatName = intent.getStringExtra(EXTRA_FORMAT)
-                archiveStr = null
-                if (srcPaths.isNullOrEmpty() || destStr.isNullOrEmpty() || formatName.isNullOrEmpty()) {
-                    stopSelf()
-                    return START_NOT_STICKY
-                }
+                val src = intent.getStringArrayExtra(EXTRA_SOURCES)?.toList()
+                val formatName = intent.getStringExtra(EXTRA_FORMAT)
+                if (src.isNullOrEmpty() || formatName.isNullOrEmpty()) return null
+                OpSpec(
+                    taskId = taskId,
+                    kind = kind,
+                    label = label,
+                    srcPaths = src,
+                    archivePath = null,
+                    destPath = dest,
+                    formatName = formatName,
+                    password = password,
+                    elevationMode = elevationMode,
+                    onlyNames = null
+                )
             }
             OpKind.EXTRACT -> {
-                archiveStr = intent.getStringExtra(EXTRA_ARCHIVE)
-                destStr = intent.getStringExtra(EXTRA_DEST)
-                onlyNames = intent.getStringArrayExtra(EXTRA_ONLY_NAMES)
-                srcPaths = null
-                formatName = null
-                if (archiveStr.isNullOrEmpty() || destStr.isNullOrEmpty()) {
-                    stopSelf()
-                    return START_NOT_STICKY
-                }
+                val archive = intent.getStringExtra(EXTRA_ARCHIVE) ?: return null
+                val onlyNames = intent.getStringArrayExtra(EXTRA_ONLY_NAMES)?.toList()
+                OpSpec(
+                    taskId = taskId,
+                    kind = kind,
+                    label = label,
+                    srcPaths = null,
+                    archivePath = archive,
+                    destPath = dest,
+                    formatName = null,
+                    password = password,
+                    elevationMode = elevationMode,
+                    onlyNames = onlyNames
+                )
             }
         }
-        owned = true
-        ownedKind = kind
-        ownedLabel = label
-        ArchiveOpManager.started(kind, label)
+    }
+
+    private fun ensureForeground() {
+        if (foregroundStarted) return
         ensureChannel()
-        stalledDetected = false
-        speedWindow.clear()
-        stallSinceElapsed = SystemClock.elapsedRealtime()
-        stallLastDone = 0L
-        stallLastTotal = 0L
-        acquireWakeLock()
-        val initial = buildProgressNotification(label, 0L, 0L, null, null)
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
-            initial,
+            buildAggregateNotification(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
-        val capturedSrcs = srcPaths?.toList()
-        val capturedArchive = archiveStr
-        val capturedDest = destStr
-        val capturedFormat = formatName
-        val capturedOnlyNames = onlyNames?.toList()
-        scopeJob = scope.launch {
-            try {
-                runOp(
-                    kind,
-                    capturedSrcs,
-                    capturedArchive,
-                    capturedDest,
-                    capturedFormat,
-                    password,
-                    elevationMode,
-                    label,
-                    capturedOnlyNames
-                )
-            } finally {
-                releaseWakeLock()
-            }
-        }
-        return START_REDELIVER_INTENT
+        foregroundStarted = true
     }
 
-    private suspend fun CoroutineScope.runOp(
-        kind: OpKind,
-        srcPaths: List<String>?,
-        archiveStr: String?,
-        destStr: String?,
-        formatName: String?,
-        password: String?,
-        elevationMode: String,
-        label: String,
-        onlyNames: List<String>? = null
-    ) {
-        val progressJob = launch {
-            while (isActive) {
-                delay(250)
-                val current = readProgress()
-                ArchiveOpManager.progress(current.first, current.second)
-                val now = SystemClock.elapsedRealtime()
-                if (current.first != stallLastDone || current.second != stallLastTotal) {
-                    stallSinceElapsed = now
-                    stallLastDone = current.first
-                    stallLastTotal = current.second
-                } else if (now - stallSinceElapsed >= STALL_TIMEOUT_MS) {
-                    stalledDetected = true
-                    cancelCurrent()
-                    break
-                }
-                val speed = if (current.second > 0L) recordSample(current.first) else null
-                val speedText = if (speed != null && speed > 0.0) {
-                    formatSpeed(speed)
-                } else {
-                    null
-                }
-                val etaText = formatEta(current.second, current.first, speed)
-                val updated = buildProgressNotification(label, current.first, current.second, speedText, etaText)
-                try {
-                    val manager =
-                        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                    manager.notify(NOTIFICATION_ID, updated)
+    private fun pump() {
+        synchronized(lock) {
+            while (jobs.size < TaskManager.MAX_PARALLEL && queue.isNotEmpty()) {
+                val id = queue.removeFirst()
+                val spec = specs[id] ?: continue
+                launchOpLocked(spec)
+            }
+        }
+        updateAggregateNotification()
+        maybeStopIfIdle()
+    }
+
+    private fun launchOpLocked(spec: OpSpec) {
+        TaskManager.markRunning(spec.taskId)
+        val job = scope.launch { runTask(spec) }
+        jobs[spec.taskId] = job
+    }
+
+    private suspend fun runTask(spec: OpSpec) {
+        val id = spec.taskId
+        synchronized(lock) {
+            stallTrackers[id] = StallTracker(SystemClock.elapsedRealtime())
+            speedWindows[id] = ArrayDeque()
+        }
+        try {
+            var outcome: OpOutcome = try {
+                executeOp(spec)
+            } catch (_: CancellationException) {
+                OpOutcome.Cancelled
+            } catch (e: Exception) {
+                mapFailure(e.message)
+            }
+            val stalled = synchronized(lock) { stalledIds.remove(id) }
+            if (stalled) {
+                outcome = OpOutcome.Failed(STALL_MESSAGE)
+            }
+            finishTask(spec, outcome)
+        } finally {
+            synchronized(lock) {
+                jobs.remove(id)
+                specs.remove(id)
+                speedWindows.remove(id)
+                stallTrackers.remove(id)
+                stalledIds.remove(id)
+            }
+            pump()
+        }
+    }
+
+    private suspend fun executeOp(spec: OpSpec): OpOutcome {
+        val repo = FileSystemRepository()
+        repo.tempDir = cacheDir
+        val engine = when (spec.elevationMode) {
+            "shizuku" -> ShizukuEngine
+            "root" -> RootEngine
+            else -> null
+        }
+        val result = when (spec.kind) {
+            OpKind.COMPRESS -> {
+                val sources = spec.srcPaths.orEmpty().map { File(it) }
+                val dest = File(spec.destPath)
+                val format = try {
+                    CompressFormat.valueOf(spec.formatName ?: CompressFormat.ZIP.name)
                 } catch (_: Exception) {
+                    CompressFormat.ZIP
+                }
+                repo.compress(sources, dest, format, spec.password, spec.taskId)
+            }
+            OpKind.EXTRACT -> {
+                repo.extract(
+                    File(spec.archivePath ?: ""),
+                    File(spec.destPath),
+                    spec.password,
+                    engine,
+                    spec.elevationMode,
+                    spec.onlyNames,
+                    spec.taskId
+                )
+            }
+        }
+        if (result.isSuccess) {
+            return OpOutcome.Success
+        }
+        val error = result.exceptionOrNull()
+        return if (error is CancellationException) {
+            OpOutcome.Cancelled
+        } else {
+            mapFailure(error?.message)
+        }
+    }
+
+    private fun finishTask(spec: OpSpec, outcome: OpOutcome) {
+        val wasActive = TaskManager.tasks.value.firstOrNull { it.id == spec.taskId }?.isActive == true
+        if (!wasActive) return
+        val status = when (outcome) {
+            is OpOutcome.Success -> TaskStatus.DONE
+            is OpOutcome.Cancelled -> TaskStatus.CANCELLED
+            is OpOutcome.Failed -> TaskStatus.FAILED
+        }
+        val message = (outcome as? OpOutcome.Failed)?.message
+        TaskManager.markFinished(spec.taskId, status, message)
+        postCompletionNotification(spec, outcome)
+    }
+
+    private fun startPolling() {
+        synchronized(lock) {
+            if (pollJob?.isActive == true) return
+            pollJob = scope.launch {
+                while (isActive) {
+                    delay(250)
+                    pollOnce()
                 }
             }
         }
-        val outcome = executeOp(
-            kind,
-            srcPaths,
-            archiveStr,
-            destStr,
-            formatName,
-            password,
-            elevationMode,
-            onlyNames
-        )
-        progressJob.cancel()
-        val finalOutcome = if (stalledDetected) {
-            OpOutcome.Failed("Operation stalled (no progress for 5 minutes)")
-        } else {
-            outcome
+    }
+
+    private fun pollOnce() {
+        val ids = synchronized(lock) { jobs.keys.toList() }
+        if (ids.isEmpty()) return
+        val now = SystemClock.elapsedRealtime()
+        for (id in ids) {
+            val progress = readTaskProgress(id)
+            val done = progress.first
+            val total = progress.second
+            val speed = recordSample(id, done)
+            val speedText = if (speed != null && speed > 0.0) formatSpeed(speed) else null
+            val etaText = formatEta(total, done, speed)
+            TaskManager.updateProgress(id, done, total, speedText, etaText)
+            checkStall(id, done, total, now)
         }
-        ArchiveOpManager.finished(kind, label, finalOutcome)
-        val done = buildCompletionNotification(label, finalOutcome)
+        updateAggregateNotification()
+    }
+
+    private fun checkStall(id: Long, done: Long, total: Long, now: Long) {
+        val stalled = synchronized(lock) {
+            val tracker = stallTrackers[id] ?: return
+            if (done != tracker.lastDone || total != tracker.lastTotal) {
+                tracker.lastDone = done
+                tracker.lastTotal = total
+                tracker.lastChangeElapsed = now
+                false
+            } else if (now - tracker.lastChangeElapsed >= STALL_TIMEOUT_MS) {
+                stalledIds.add(id)
+                true
+            } else {
+                false
+            }
+        }
+        if (stalled) {
+            stallTask(id)
+        }
+    }
+
+    private fun stallTask(id: Long) {
         try {
-            ServiceCompat.stopForeground(this@ArchiveService, STOP_FOREGROUND_DETACH)
-        } catch (_: Exception) {
+            if (RustBridge.isLoaded()) {
+                RustBridge.cancelTask(id)
+            }
+        } catch (_: Throwable) {
         }
-        try {
-            val manager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.notify(NOTIFICATION_ID, done)
-        } catch (_: Exception) {
+        synchronized(lock) {
+            jobs[id]?.cancel()
         }
-        owned = false
+    }
+
+    private fun cancelTask(id: Long) {
+        var removedQueued = false
+        synchronized(lock) {
+            if (queue.remove(id)) {
+                specs.remove(id)
+                removedQueued = true
+            }
+        }
+        if (removedQueued) {
+            TaskManager.markFinished(id, TaskStatus.CANCELLED)
+            updateAggregateNotification()
+            maybeStopIfIdle()
+            return
+        }
+        val job = synchronized(lock) { jobs[id] }
+        TaskManager.markFinished(id, TaskStatus.CANCELLED)
+        if (job != null) {
+            try {
+                if (RustBridge.isLoaded()) {
+                    RustBridge.cancelTask(id)
+                }
+            } catch (_: Throwable) {
+            }
+            job.cancel()
+        }
+        updateAggregateNotification()
+        maybeStopIfIdle()
+    }
+
+    private fun cancelAll() {
+        val queued: List<Long>
+        val running: List<Long>
+        synchronized(lock) {
+            queued = queue.toList()
+            queue.clear()
+            running = jobs.keys.toList()
+        }
+        for (id in queued) {
+            TaskManager.markFinished(id, TaskStatus.CANCELLED)
+            synchronized(lock) { specs.remove(id) }
+        }
+        for (id in running) {
+            TaskManager.markFinished(id, TaskStatus.CANCELLED)
+            try {
+                if (RustBridge.isLoaded()) {
+                    RustBridge.cancelTask(id)
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        val runningJobs = synchronized(lock) { jobs.values.toList() }
+        for (job in runningJobs) {
+            job.cancel()
+        }
+        updateAggregateNotification()
+        maybeStopIfIdle()
+    }
+
+    private fun maybeStopIfIdle() {
+        synchronized(lock) {
+            if (queue.isNotEmpty() || jobs.isNotEmpty()) return
+            pollJob?.cancel()
+            pollJob = null
+            releaseWakeLock()
+            if (foregroundStarted) {
+                try {
+                    ServiceCompat.stopForeground(this, Service.STOP_FOREGROUND_REMOVE)
+                } catch (_: Exception) {
+                }
+                foregroundStarted = false
+            }
+        }
         stopSelf()
     }
 
-    private fun recordSample(doneBytes: Long): Double? {
+    private fun recordSample(id: Long, doneBytes: Long): Double? {
         val now = SystemClock.elapsedRealtime()
-        speedWindow.addLast(Pair(now, doneBytes))
-        while (speedWindow.size > 5) {
-            speedWindow.removeFirst()
+        val window = synchronized(lock) {
+            val existing = speedWindows[id] ?: ArrayDeque<Pair<Long, Long>>().also {
+                speedWindows[id] = it
+            }
+            existing.addLast(Pair(now, doneBytes))
+            while (existing.size > 5) {
+                existing.removeFirst()
+            }
+            existing.toList()
         }
-        val oldest = speedWindow.first()
-        val newest = speedWindow.last()
+        if (window.size < 2) {
+            return null
+        }
+        val oldest = window.first()
+        val newest = window.last()
         val elapsedMs = newest.first - oldest.first
         if (elapsedMs <= 0L) {
             return null
@@ -323,63 +557,6 @@ class ArchiveService : Service() {
         }
     }
 
-    private suspend fun executeOp(
-        kind: OpKind,
-        srcPaths: List<String>?,
-        archiveStr: String?,
-        destStr: String?,
-        formatName: String?,
-        password: String?,
-        elevationMode: String,
-        onlyNames: List<String>? = null
-    ): OpOutcome {
-        return try {
-            val repo = FileSystemRepository()
-            repo.tempDir = cacheDir
-            val engine = when (elevationMode) {
-                "shizuku" -> ShizukuEngine
-                "root" -> RootEngine
-                else -> null
-            }
-            val result = when (kind) {
-                OpKind.COMPRESS -> {
-                    val sources = (srcPaths ?: emptyList()).map { File(it) }
-                    val dest = File(destStr ?: "")
-                    val format = try {
-                        CompressFormat.valueOf(formatName ?: CompressFormat.ZIP.name)
-                    } catch (_: Exception) {
-                        CompressFormat.ZIP
-                    }
-                    repo.compress(sources, dest, format, password)
-                }
-                OpKind.EXTRACT -> {
-                    repo.extract(
-                        File(archiveStr ?: ""),
-                        File(destStr ?: ""),
-                        password,
-                        engine,
-                        elevationMode,
-                        onlyNames
-                    )
-                }
-            }
-            if (result.isSuccess) {
-                OpOutcome.Success
-            } else {
-                val error = result.exceptionOrNull()
-                if (error is CancellationException) {
-                    OpOutcome.Cancelled
-                } else {
-                    mapFailure(error?.message)
-                }
-            }
-        } catch (e: CancellationException) {
-            OpOutcome.Cancelled
-        } catch (e: Exception) {
-            mapFailure(e.message)
-        }
-    }
-
     private fun mapFailure(message: String?): OpOutcome {
         val raw = message ?: ""
         if (raw.contains("ancell", ignoreCase = true)) {
@@ -405,25 +582,21 @@ class ArchiveService : Service() {
         return out
     }
 
-    private fun readProgress(): Pair<Long, Long> {
-        try {
+    private fun readTaskProgress(taskId: Long): Pair<Long, Long> {
+        return try {
             if (!RustBridge.isLoaded()) {
-                return Pair(0L, 0L)
+                Pair(0L, 0L)
+            } else {
+                val result = RustBridge.getTaskProgress(taskId)
+                if (result.size < 2) Pair(0L, 0L) else Pair(result[0], result[1])
             }
-            val result = RustBridge.getProgress()
-            if (result.size < 2) {
-                return Pair(0L, 0L)
-            }
-            return Pair(result[0], result[1])
         } catch (_: Throwable) {
-            return Pair(0L, 0L)
+            Pair(0L, 0L)
         }
     }
 
     private fun acquireWakeLock() {
-        if (wakeLock != null) {
-            return
-        }
+        if (wakeLock != null) return
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             val lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "karchiver:archive-op")
@@ -464,15 +637,18 @@ class ArchiveService : Service() {
         }
     }
 
-    private fun buildProgressNotification(
-        label: String,
-        done: Long,
-        total: Long,
-        speedText: String?,
-        etaText: String?
-    ): Notification {
+    private fun buildAggregateNotification(): Notification {
+        val active = TaskManager.tasks.value.filter { it.isActive }
+        val count = active.size
+        val title = when (count) {
+            0 -> "Archive operations"
+            1 -> active.first().title
+            else -> "$count tasks running"
+        }
+        val done = active.sumOf { it.done }
+        val total = active.sumOf { it.total }
         val indeterminate = total <= 0L
-        val base = if (indeterminate) {
+        val text = if (indeterminate) {
             if (done > 0L) {
                 Formatter.formatShortFileSize(this, done) + " processed"
             } else {
@@ -481,15 +657,8 @@ class ArchiveService : Service() {
         } else {
             Formatter.formatShortFileSize(this, done) + " of " + Formatter.formatShortFileSize(this, total)
         }
-        var text = base
-        if (speedText != null) {
-            text = text + " · " + speedText
-        }
-        if (etaText != null) {
-            text = text + " · " + etaText
-        }
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(label)
+            .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
@@ -507,12 +676,24 @@ class ArchiveService : Service() {
         val cancelIntent = Intent(this, ArchiveService::class.java)
         cancelIntent.action = ACTION_CANCEL
         val pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        val cancelPending = PendingIntent.getService(this, 1, cancelIntent, pendingFlags)
-        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelPending)
+        val cancelPending = PendingIntent.getService(this, 2, cancelIntent, pendingFlags)
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel all", cancelPending)
         return builder.build()
     }
 
-    private fun buildCompletionNotification(label: String, outcome: OpOutcome): Notification {
+    private fun updateAggregateNotification() {
+        if (!foregroundStarted) return
+        try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(NOTIFICATION_ID, buildAggregateNotification())
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun postCompletionNotification(spec: OpSpec, outcome: OpOutcome) {
+        ensureChannel()
+        val title = TaskManager.tasks.value.firstOrNull { it.id == spec.taskId }?.title
+            ?: spec.label
         val text = when (outcome) {
             is OpOutcome.Success -> "Completed successfully"
             is OpOutcome.Cancelled -> "Cancelled"
@@ -522,8 +703,8 @@ class ArchiveService : Service() {
         openIntent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         val pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val contentPending = PendingIntent.getActivity(this, 0, openIntent, pendingFlags)
-        return NotificationCompat.Builder(this, DONE_CHANNEL_ID)
-            .setContentTitle(label)
+        val notification = NotificationCompat.Builder(this, DONE_CHANNEL_ID)
+            .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(contentPending)
@@ -531,17 +712,10 @@ class ArchiveService : Service() {
             .setOngoing(false)
             .setOnlyAlertOnce(true)
             .build()
-    }
-
-    private fun cancelCurrent() {
         try {
-            scopeJob?.cancel()
-        } catch (_: Exception) {
-        }
-        try {
-            if (RustBridge.isLoaded()) {
-                RustBridge.cancel()
-            }
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationId = 1000 + (spec.taskId % 100000L).toInt()
+            manager.notify(notificationId, notification)
         } catch (_: Exception) {
         }
     }
@@ -551,37 +725,40 @@ class ArchiveService : Service() {
             super.onTimeout(startId, fgsType)
             return
         }
-        cancelCurrent()
-        if (owned) {
-            val current = ArchiveOpManager.active.value
-            if (current != null) {
-                ArchiveOpManager.finished(current.kind, current.label, OpOutcome.Cancelled)
-            }
-        }
-        owned = false
-        releaseWakeLock()
-        stopSelf()
+        cancelAll()
     }
 
     override fun onDestroy() {
-        try {
-            scopeJob?.cancel()
-        } catch (_: Exception) {
+        val pending: Set<Long>
+        synchronized(lock) {
+            pending = HashSet<Long>(queue).apply { addAll(jobs.keys) }
+            queue.clear()
         }
-        try {
-            if (RustBridge.isLoaded()) {
-                RustBridge.cancel()
-            }
-        } catch (_: Exception) {
-        }
-        if (owned) {
-            val current = ArchiveOpManager.active.value
-            if (current != null) {
-                ArchiveOpManager.finished(current.kind, current.label, OpOutcome.Cancelled)
+        for (id in pending) {
+            TaskManager.markFinished(id, TaskStatus.CANCELLED)
+            try {
+                if (RustBridge.isLoaded()) {
+                    RustBridge.cancelTask(id)
+                }
+            } catch (_: Throwable) {
             }
         }
-        owned = false
+        val runningJobs = synchronized(lock) {
+            val copy = jobs.values.toList()
+            jobs.clear()
+            specs.clear()
+            speedWindows.clear()
+            stallTrackers.clear()
+            stalledIds.clear()
+            pollJob?.cancel()
+            pollJob = null
+            copy
+        }
+        for (job in runningJobs) {
+            job.cancel()
+        }
         releaseWakeLock()
+        scope.cancel()
         super.onDestroy()
     }
 }

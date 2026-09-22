@@ -146,11 +146,12 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setLogFile
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compress(
     mut env: JNIEnv,
     _class: JClass,
+    task_id: jlong,
     src_array: JObjectArray,
     dest_str: JString,
 ) -> jint {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
-        clear_cancel();
+        let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let sources = read_sources(&mut env, &src_array)?;
         let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
         let format = format::format_for_destination(&dest)?;
@@ -164,11 +165,12 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compress(
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extract(
     mut env: JNIEnv,
     _class: JClass,
+    task_id: jlong,
     archive_str: JString,
     dest_str: JString,
 ) -> jint {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
-        clear_cancel();
+        let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
         let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
         let format = format::detect(&archive)?;
@@ -181,12 +183,13 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extract(
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractFiltered(
     mut env: JNIEnv,
     _class: JClass,
+    task_id: jlong,
     archive_str: JString,
     dest_str: JString,
     names_array: JObjectArray,
 ) -> jint {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
-        clear_cancel();
+        let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
         let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
         let names = read_strings(&mut env, &names_array)?;
@@ -200,13 +203,14 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractFil
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractFilteredWithPassword(
     mut env: JNIEnv,
     _class: JClass,
+    task_id: jlong,
     archive_str: JString,
     dest_str: JString,
     names_array: JObjectArray,
     password_str: JString,
 ) -> jint {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
-        clear_cancel();
+        let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
         let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
         let names = read_strings(&mut env, &names_array)?;
@@ -356,6 +360,15 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_cancel(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_cancelTask(
+    _env: JNIEnv,
+    _class: JClass,
+    task_id: jlong,
+) {
+    crate::io_util::task_request_cancel(task_id as u64);
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_getProgress<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -372,15 +385,33 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_getProgres
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_getTaskProgress<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    task_id: jlong,
+) -> JLongArray<'local> {
+    let (done, total) = crate::io_util::task_progress_get(task_id as u64);
+    let vals = [done as jlong, total as jlong];
+    match env.new_long_array(2) {
+        Ok(arr) => match env.set_long_array_region(&arr, 0, &vals) {
+            Ok(()) => arr,
+            Err(_) => JLongArray::default(),
+        },
+        Err(_) => JLongArray::default(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compressWithPassword(
     mut env: JNIEnv,
     _class: JClass,
+    task_id: jlong,
     src_array: JObjectArray,
     dest_str: JString,
     password_str: JString,
 ) -> jint {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
-        clear_cancel();
+        let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let sources = read_sources(&mut env, &src_array)?;
         let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
         let password = read_string(&mut env, &password_str)?;
@@ -397,12 +428,13 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compressWi
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractWithPassword(
     mut env: JNIEnv,
     _class: JClass,
+    task_id: jlong,
     archive_str: JString,
     dest_str: JString,
     password_str: JString,
 ) -> jint {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
-        clear_cancel();
+        let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
         let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
         let password = read_string(&mut env, &password_str)?;
@@ -715,11 +747,12 @@ fn finish_json_string<'local>(
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractFd(
     mut env: JNIEnv,
     _class: JClass,
+    task_id: jlong,
     fd: jint,
     dest_str: JString,
 ) -> jint {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
-        clear_cancel();
+        let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let archive = fdPath(fd);
         let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
         do_extract(&archive, &dest, None)
@@ -732,12 +765,13 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractFd(
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractWithPasswordFd(
     mut env: JNIEnv,
     _class: JClass,
+    task_id: jlong,
     fd: jint,
     dest_str: JString,
     password_str: JString,
 ) -> jint {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
-        clear_cancel();
+        let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let archive = fdPath(fd);
         let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
         let password = read_string(&mut env, &password_str)?;

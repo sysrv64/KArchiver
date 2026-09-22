@@ -38,10 +38,9 @@ import com.kerneldroid.karchiver.data.search.requiresDeepSearch
 import com.kerneldroid.karchiver.data.search.scanRecents
 import com.kerneldroid.karchiver.data.RustBridge
 import com.kerneldroid.karchiver.data.SettingsRepository
-import com.kerneldroid.karchiver.data.archive.ActiveOp
-import com.kerneldroid.karchiver.data.archive.ArchiveOpManager
-import com.kerneldroid.karchiver.data.archive.ArchiveService
-import com.kerneldroid.karchiver.data.archive.OpOutcome
+import com.kerneldroid.karchiver.data.archive.ArchiveTask
+import com.kerneldroid.karchiver.data.archive.TaskManager
+import com.kerneldroid.karchiver.data.archive.TaskStatus
 import com.kerneldroid.karchiver.data.SortBy
 import com.kerneldroid.karchiver.data.TestReport
 import com.kerneldroid.karchiver.data.storage.AppVolume
@@ -155,9 +154,9 @@ class BrowserViewModel(
 
     private val _verifyActive = MutableStateFlow(false)
     val verifyActive: StateFlow<Boolean> = _verifyActive
-    val archiveOp: StateFlow<ActiveOp?> = ArchiveOpManager.active
-    val progressDialogVisible = MutableStateFlow(true)
-    private var pendingCompletion: ((Result<Unit>) -> Unit)? = null
+    val tasks: StateFlow<List<ArchiveTask>> = TaskManager.tasks
+    val activeTaskCount: StateFlow<Int> = TaskManager.activeCount
+    val progressTaskId = MutableStateFlow<Long?>(null)
 
     private val _conflict = MutableStateFlow<ConflictRequest?>(null)
     val conflict: StateFlow<ConflictRequest?> = _conflict
@@ -165,30 +164,12 @@ class BrowserViewModel(
     private var pendingExtractDone: ((Result<Unit>) -> Unit)? = null
     private var pendingExtractContext: Context? = null
 
-    init {
-        viewModelScope.launch {
-            ArchiveOpManager.finished.collect { finished ->
-                if (finished != null) {
-                    refresh()
-                    val result = when (val outcome = finished.outcome) {
-                        is OpOutcome.Success -> Result.success(Unit)
-                        is OpOutcome.Cancelled -> Result.failure(Exception("Cancelled"))
-                        is OpOutcome.Failed -> Result.failure(Exception(outcome.message))
-                    }
-                    pendingCompletion?.invoke(result)
-                    pendingCompletion = null
-                    ArchiveOpManager.consumeFinished()
-                }
-            }
-        }
-    }
-
     fun hideProgressDialog() {
-        progressDialogVisible.value = false
+        progressTaskId.value = null
     }
 
     fun showProgressDialog() {
-        progressDialogVisible.value = true
+        progressTaskId.value = tasks.value.firstOrNull { it.isActive }?.id
     }
 
     private val _preview = MutableStateFlow(ArchivePreviewUiState())
@@ -311,9 +292,20 @@ class BrowserViewModel(
     }
 
     fun cancelArchiveOp(context: Context) {
-        try {
-            ArchiveService.cancel(context)
-        } catch (_: Throwable) {
+        progressTaskId.value?.let { TaskManager.cancel(it) }
+    }
+
+    private fun observeTask(taskId: Long, onDone: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val task = TaskManager.await(taskId)
+            refresh()
+            val result = when (task.status) {
+                TaskStatus.DONE -> Result.success(Unit)
+                TaskStatus.CANCELLED -> Result.failure(Exception("Cancelled"))
+                else -> Result.failure(Exception(task.message ?: "Operation failed"))
+            }
+            onDone(result)
+            if (progressTaskId.value == taskId) progressTaskId.value = null
         }
     }
 
@@ -1005,16 +997,12 @@ class BrowserViewModel(
             onDone(Result.failure(RarWriteLockedException()))
             return
         }
-        if (ArchiveOpManager.active.value != null || pendingCompletion != null) {
-            onDone(Result.failure(Exception("Another operation is in progress")))
-            return
-        }
-        pendingCompletion = onDone
-        progressDialogVisible.value = true
         val safeName = normalizeArchiveName(name, format)
         val dest = File(_state.value.currentDir, safeName)
         clearSelection()
-        ArchiveService.startCompress(context, files, dest, format, password.ifEmpty { null }, _state.value.elevationMode)
+        val taskId = TaskManager.startCompress(context, files, dest, format, password.ifEmpty { null }, _state.value.elevationMode)
+        progressTaskId.value = taskId
+        observeTask(taskId, onDone)
     }
 
     fun startExtract(context: Context, file: File, password: String = "", onDone: (Result<Unit>) -> Unit = {}) {
@@ -1034,10 +1022,6 @@ class BrowserViewModel(
         }
         if (!FormatRegistry.isArchive(file.extension)) {
             onDone(Result.failure(IllegalArgumentException("Not archive"))); return
-        }
-        if (ArchiveOpManager.active.value != null || pendingCompletion != null) {
-            onDone(Result.failure(Exception("Another operation is in progress")))
-            return
         }
         viewModelScope.launch {
             val dest = destDir
@@ -1079,20 +1063,9 @@ class BrowserViewModel(
         onlyNames: List<String>?,
         onDone: (Result<Unit>) -> Unit
     ) {
-        if (ArchiveOpManager.active.value != null || pendingCompletion != null) {
-            onDone(Result.failure(Exception("Another operation is in progress")))
-            return
-        }
-        pendingCompletion = onDone
-        progressDialogVisible.value = true
-        ArchiveService.startExtract(
-            context,
-            file,
-            destDir,
-            password.ifEmpty { null },
-            _state.value.elevationMode,
-            onlyNames
-        )
+        val taskId = TaskManager.startExtract(context, file, destDir, password.ifEmpty { null }, _state.value.elevationMode, onlyNames)
+        progressTaskId.value = taskId
+        observeTask(taskId, onDone)
     }
 
     fun chmodFile(file: File, mode: Int, onDone: (Result<Unit>) -> Unit = {}) {

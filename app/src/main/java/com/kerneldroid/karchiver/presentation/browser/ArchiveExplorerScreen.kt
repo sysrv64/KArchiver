@@ -82,8 +82,7 @@ import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
 import com.kerneldroid.karchiver.data.CompressFormat
 import com.kerneldroid.karchiver.data.FileItem
 import com.kerneldroid.karchiver.data.FormatRegistry
-import com.kerneldroid.karchiver.data.archive.ArchiveOpManager
-import com.kerneldroid.karchiver.data.archive.ArchiveService
+import com.kerneldroid.karchiver.data.archive.TaskManager
 import com.kerneldroid.karchiver.data.isRarArchive
 import com.kerneldroid.karchiver.data.nameWithoutArchiveExtension
 import com.kerneldroid.karchiver.data.normalizeArchiveName
@@ -133,7 +132,8 @@ fun ArchiveExplorerRoute(
     var openWithApps by remember { mutableStateOf<List<ResolveInfo>>(emptyList()) }
     var compressStage by remember { mutableStateOf<File?>(null) }
     var compressRunning by remember { mutableStateOf(false) }
-    val activeArchiveOp by ArchiveOpManager.active.collectAsStateWithLifecycle()
+    var compressTaskId by remember { mutableStateOf<Long?>(null) }
+    val allTasks by TaskManager.tasks.collectAsStateWithLifecycle()
     val cleanupScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
     val stagedForLater = remember { mutableListOf<File>() }
     val listState = rememberLazyListState()
@@ -159,13 +159,15 @@ fun ArchiveExplorerRoute(
         }
     }
 
-    LaunchedEffect(activeArchiveOp) {
-        if (activeArchiveOp != null) {
+    val compressTask = compressTaskId?.let { id -> allTasks.firstOrNull { it.id == id } }
+    LaunchedEffect(compressTask?.status) {
+        if (compressTask?.isActive == true) {
             if (compressStage != null) compressRunning = true
         } else if (compressRunning) {
             val dir = compressStage
             compressStage = null
             compressRunning = false
+            compressTaskId = null
             if (dir != null) deleteStaged(dir)
         }
     }
@@ -773,16 +775,9 @@ fun ArchiveExplorerRoute(
                             } ?: emptyList()
                             if (files.isNotEmpty()) {
                                 val dest = File(archive.parentFile, chosenName)
-                                ArchiveService.startCompress(
-                                    context,
-                                    files,
-                                    dest,
-                                    chosenFormat,
-                                    chosenPassword.ifEmpty { null },
-                                    "off"
-                                )
+                                compressTaskId = TaskManager.startCompress(context, files, dest, chosenFormat, chosenPassword.ifEmpty { null }, "off")
                                 compressStage = staging
-                                compressRunning = compressRunning || ArchiveOpManager.active.value != null
+                                compressRunning = true
                             } else {
                                 addError = "Nothing to compress"
                                 withContext(Dispatchers.IO) { runCatching { staging.deleteRecursively() } }
