@@ -447,7 +447,7 @@ object RootEngine : ElevatedFS {
         shellLines = queue
         val token = HELLO_PREFIX + UUID.randomUUID().toString().replace("-", "")
         try {
-            writer.write("echo $token")
+            writer.write("printf '\\n%s\\n' '$token'")
             writer.newLine()
             writer.flush()
         } catch (_: Exception) {
@@ -471,7 +471,7 @@ object RootEngine : ElevatedFS {
                     destroyShellLocked()
                     return SpawnResult.Failed
                 }
-                if (line.trim() == token) {
+                if (line.contains(token)) {
                     suBinarySeen = true
                     return SpawnResult.Ready
                 }
@@ -502,7 +502,7 @@ object RootEngine : ElevatedFS {
                 destroyShellLocked()
                 return ExecOutcome.Failed
             }
-            writer.write("echo $mark \$?")
+            writer.write("printf '\\n%s %s\\n' '$mark' \$?")
             writer.newLine()
             writer.flush()
         } catch (_: Exception) {
@@ -527,9 +527,9 @@ object RootEngine : ElevatedFS {
                     destroyShellLocked()
                     return ExecOutcome.Failed
                 }
-                if (line.startsWith(mark)) {
-                    val code = line.substringAfterLast(" ").trim().toIntOrNull() ?: 1
-                    return ExecOutcome.Done(code, output.toString())
+                if (line.contains(mark)) {
+                    val code = parseMarkedExitCode(line, mark)
+                    return ExecOutcome.Done(code ?: 1, output.toString())
                 }
                 if (output.length < MAX_OUTPUT_CHARS) {
                     val room = MAX_OUTPUT_CHARS - output.length
@@ -845,4 +845,9 @@ object RootEngine : ElevatedFS {
             }
         }
     }
+}
+
+internal fun parseMarkedExitCode(line: String, mark: String): Int? {
+    if (!line.contains(mark)) return null
+    return line.substringAfter(mark).trim().toIntOrNull() ?: 1
 }

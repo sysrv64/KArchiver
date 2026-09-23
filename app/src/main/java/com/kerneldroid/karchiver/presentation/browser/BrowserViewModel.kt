@@ -1102,22 +1102,19 @@ class BrowserViewModel(
         val ext = file.extension.lowercase()
         if (FormatRegistry.isArchive(ext)) return
         recordInteraction(file)
-        if (file.canRead()) {
-            shareFile(context, file)
-            return
-        }
+        if (file.canRead() && shareFile(context, file)) return
         viewModelScope.launch {
             val staged = repo.stageForOpen(file, elevationEngine()).getOrNull() ?: return@launch
             shareFile(context, staged)
         }
     }
 
-    private fun shareFile(context: Context, file: File) {
+    private fun shareFile(context: Context, file: File): Boolean {
         val ext = file.extension.lowercase()
         val mime = FormatRegistry.forExtension(ext).mime
         val uri = try {
             FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-        } catch (_: Exception) { return }
+        } catch (_: Exception) { return false }
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mime)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -1125,13 +1122,18 @@ class BrowserViewModel(
         }
         try {
             context.startActivity(Intent.createChooser(intent, file.name))
+            return true
         } catch (_: Exception) {
             val fallback = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "*/*")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            try { context.startActivity(Intent.createChooser(fallback, file.name)) } catch (_: Exception) {}
+            try {
+                context.startActivity(Intent.createChooser(fallback, file.name))
+                return true
+            } catch (_: Exception) {}
         }
+        return false
     }
 
     override fun onCleared() {

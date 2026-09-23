@@ -511,9 +511,11 @@ pub fn delete_entries_with_password(
             "Password-protected editing of {} archives is not supported",
             f.label()
         ))),
-        Format::SevenZ => Err(ArchiveError::Unsupported(
-            "Password-protected editing of 7z archives is not supported".to_string(),
-        )),
+        Format::SevenZ => {
+            let pw = std::str::from_utf8(password)
+                .map_err(|_| ArchiveError::invalid("password is not valid UTF-8"))?;
+            sevenz::delete_entries_with_password(archive, names, pw)
+        }
         Format::Rar => Err(ArchiveError::Unsupported(
             "Editing RAR archives is not supported".to_string(),
         )),
@@ -541,9 +543,11 @@ pub fn rename_entry_with_password(
             "Password-protected editing of {} archives is not supported",
             f.label()
         ))),
-        Format::SevenZ => Err(ArchiveError::Unsupported(
-            "Password-protected editing of 7z archives is not supported".to_string(),
-        )),
+        Format::SevenZ => {
+            let pw = std::str::from_utf8(password)
+                .map_err(|_| ArchiveError::invalid("password is not valid UTF-8"))?;
+            sevenz::rename_entry_with_password(archive, from, to, pw)
+        }
         Format::Rar => Err(ArchiveError::Unsupported(
             "Editing RAR archives is not supported".to_string(),
         )),
@@ -571,9 +575,11 @@ pub fn add_files_with_password(
             "Password-protected editing of {} archives is not supported",
             f.label()
         ))),
-        Format::SevenZ => Err(ArchiveError::Unsupported(
-            "Password-protected editing of 7z archives is not supported".to_string(),
-        )),
+        Format::SevenZ => {
+            let pw = std::str::from_utf8(password)
+                .map_err(|_| ArchiveError::invalid("password is not valid UTF-8"))?;
+            sevenz::add_files_with_password(archive, sources, dest_dir, pw)
+        }
         Format::Rar => Err(ArchiveError::Unsupported(
             "Editing RAR archives is not supported".to_string(),
         )),
@@ -612,10 +618,7 @@ pub fn set_entry_meta(
             "{} archives do not support changing entry metadata",
             Format::Rar.label()
         ))),
-        Format::SevenZ => Err(ArchiveError::Unsupported(format!(
-            "{} archives do not support changing entry metadata",
-            Format::SevenZ.label()
-        ))),
+        Format::SevenZ => sevenz::set_entry_meta(archive, name, modified_millis, mode, password),
         other => Err(ArchiveError::Unsupported(format!(
             "{} archives do not support changing entry metadata",
             other.label()

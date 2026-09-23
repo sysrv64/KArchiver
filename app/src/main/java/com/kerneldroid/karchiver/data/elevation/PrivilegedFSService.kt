@@ -77,7 +77,9 @@ class PrivilegedFSService : IPrivilegedFS.Stub() {
             if (!file.isAbsolute) return null
             val modeFlags = when (mode) {
                 0 -> ParcelFileDescriptor.MODE_READ_ONLY
-                1 -> ParcelFileDescriptor.MODE_READ_WRITE
+                1 -> ParcelFileDescriptor.MODE_READ_WRITE or
+                    ParcelFileDescriptor.MODE_CREATE or
+                    ParcelFileDescriptor.MODE_TRUNCATE
                 else -> return null
             }
             val pfd = ParcelFileDescriptor.open(file, modeFlags)

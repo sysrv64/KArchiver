@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use karchiver_rs::backend;
+use karchiver_rs::error::ArchiveError;
 use karchiver_rs::format::Format;
 use karchiver_rs::io_util::Limits;
 use tempfile::tempdir;
@@ -124,6 +125,33 @@ fn dotted_split_missing_middle_names_file() {
     fs::write(dir.path().join("arch.zip.003"), p3).unwrap();
     let err = backend::list(&dir.path().join("arch.zip.001"), Format::Zip).unwrap_err();
     assert!(err.to_string().contains(".002"), "unexpected error: {err}");
+}
+
+#[test]
+fn split_parse_failure_reports_multidisk_unsupported() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join("arch.z01"), b"garbage bytes").unwrap();
+    fs::write(dir.path().join("arch.zip"), b"more garbage bytes").unwrap();
+    let err = backend::list(&dir.path().join("arch.z01"), Format::Zip).unwrap_err();
+    assert!(
+        matches!(err, ArchiveError::Unsupported(_)),
+        "unexpected error: {err:?}"
+    );
+    assert!(
+        err.to_string().contains("multi-disk"),
+        "unexpected error: {err}"
+    );
+    let err2 = backend::extract(
+        &dir.path().join("arch.z01"),
+        &dir.path().join("out"),
+        Format::Zip,
+        &Limits::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err2, ArchiveError::Unsupported(_)),
+        "unexpected error: {err2:?}"
+    );
 }
 
 #[test]

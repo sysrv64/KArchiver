@@ -1,20 +1,23 @@
 //! 7-Zip backend (pure-Rust `sevenz-rust2`).
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 use sevenz_rust2::encoder_options::{AesEncoderOptions, Lzma2Options};
-use sevenz_rust2::{ArchiveEntry, ArchiveReader, ArchiveWriter, Password, SourceReader};
+use sevenz_rust2::{ArchiveEntry, ArchiveReader, ArchiveWriter, NtTime, Password, SourceReader};
 
 use crate::backend::collect_sources;
-use crate::backend::{ContentMatch, PreviewEntry, PreviewListing, TestFailure, TestReport};
+use crate::backend::{
+    ContentMatch, PreviewEntry, PreviewListing, SourceEntry, TestFailure, TestReport,
+};
 use crate::content_search::Scanner;
 use crate::error::{ArchiveError, CANCEL_MARKER, LIMIT_MARKER, Result, classify_io};
 use crate::io_util::{
     AtomicFile, CancelReader, LimitState, LimitedReader, Limits, check_cancelled,
-    create_dir_all_checked, create_output_file, is_cancelled, log_warn, progress_reset,
-    reject_symlink_ancestors, safe_join, set_file_mode,
+    create_dir_all_checked, create_output_file, is_cancelled, log_warn, progress_add,
+    progress_reset, reject_symlink_ancestors, safe_join, sanitize_entry_name, set_file_mode,
 };
 
 fn map_err(e: sevenz_rust2::Error) -> ArchiveError {
@@ -615,20 +618,887 @@ fn test_impl(archive: &Path, limits: &Limits, password: Option<&str>) -> Result<
     })
 }
 
-pub fn delete_entries(_archive: &Path, _names: &[String]) -> Result<()> {
-    Err(ArchiveError::Unsupported(
-        "Editing 7z archives is not supported".to_string(),
-    ))
+fn trim_name(value: &str) -> String {
+    value.trim_end_matches('/').to_string()
 }
 
-pub fn rename_entry(_archive: &Path, _from: &str, _to: &str) -> Result<()> {
-    Err(ArchiveError::Unsupported(
-        "Editing 7z archives is not supported".to_string(),
-    ))
+fn entry_matches(entry: &str, target: &str) -> bool {
+    let e = entry.trim_end_matches('/');
+    let t = target.trim_end_matches('/');
+    if t.is_empty() {
+        return false;
+    }
+    e == t || e.starts_with(&format!("{t}/"))
 }
 
-pub fn add_files(_archive: &Path, _sources: &[PathBuf], _dest_dir: &str) -> Result<()> {
-    Err(ArchiveError::Unsupported(
-        "Editing 7z archives is not supported".to_string(),
-    ))
+fn normalize_targets(names: &[String]) -> Result<Vec<String>> {
+    let mut out = Vec::with_capacity(names.len());
+    for n in names {
+        let s = sanitize_entry_name(n)?;
+        if s.is_empty() {
+            return Err(ArchiveError::invalid("empty entry name"));
+        }
+        out.push(trim_name(&s));
+    }
+    Ok(out)
+}
+
+fn normalize_dest_dir(dest_dir: &str) -> Result<String> {
+    let t = dest_dir.trim().replace('\\', "/");
+    let t = t.trim_matches('/').to_string();
+    if t.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(trim_name(&sanitize_entry_name(&t)?))
+}
+
+enum EditKind {
+    Delete(Vec<String>),
+    Rename {
+        from: String,
+        to: String,
+    },
+    Add {
+        replace: HashSet<String>,
+    },
+    Meta {
+        target: String,
+        modified_millis: u64,
+    },
+}
+
+fn validate_rename(existing: &[String], from: &str, to: &str) -> Result<()> {
+    let mut from_found = false;
+    for n in existing {
+        if entry_matches(n, from) {
+            from_found = true;
+            break;
+        }
+    }
+    if !from_found {
+        return Err(ArchiveError::invalid(format!("entry '{from}' not found")));
+    }
+    let outside: HashSet<String> = existing
+        .iter()
+        .filter(|n| !entry_matches(n, from))
+        .cloned()
+        .collect();
+    for n in existing {
+        if entry_matches(n, from) {
+            let rest = n[from.len()..].to_string();
+            let candidate = format!("{to}{rest}");
+            if outside.contains(&candidate) {
+                return Err(ArchiveError::invalid(format!(
+                    "entry '{candidate}' already exists"
+                )));
+            }
+        }
+    }
+    if outside.contains(to) {
+        return Err(ArchiveError::invalid(format!(
+            "entry '{to}' already exists"
+        )));
+    }
+    Ok(())
+}
+
+fn drain_entry(data: &mut dyn Read) -> Result<()> {
+    let mut cancellable = CancelReader::new(data);
+    io::copy(&mut cancellable, &mut io::sink()).map_err(classify_io)?;
+    Ok(())
+}
+
+fn edit_impl(
+    archive: &Path,
+    password: Option<&str>,
+    kind: EditKind,
+    additions: &[SourceEntry],
+) -> Result<()> {
+    let (pw, have_password) = match password {
+        Some(p) => password_of(p),
+        None => (Password::empty(), false),
+    };
+    let mut reader =
+        ArchiveReader::open(archive, pw).map_err(|e| map_open_err_pw(e, have_password))?;
+
+    let existing: Vec<String> = reader
+        .archive()
+        .files
+        .iter()
+        .map(|f| trim_name(f.name()))
+        .collect();
+    if let EditKind::Rename { from, to } = &kind {
+        validate_rename(&existing, from, to)?;
+    }
+    if let EditKind::Meta { target, .. } = &kind
+        && !existing.iter().any(|n| n == target)
+    {
+        return Err(ArchiveError::invalid(format!("entry '{target}' not found")));
+    }
+
+    let limits = Limits::default();
+    let af = AtomicFile::new(archive)?;
+    let mut state = LimitState::new(&limits);
+    let mut writer = ArchiveWriter::create(af.path()).map_err(map_err)?;
+    if let Some(pw) = password.filter(|p| !p.is_empty()) {
+        writer.set_content_methods(vec![
+            AesEncoderOptions::new(Password::new(pw)).into(),
+            lzma2_options().into(),
+        ]);
+    } else {
+        writer.set_content_methods(vec![lzma2_options().into()]);
+    }
+    progress_reset(existing.len() as u64 + additions.len() as u64);
+
+    let mut batch_entries: Vec<ArchiveEntry> = Vec::new();
+    let mut batch_readers: Vec<SourceReader<Box<dyn Read>>> = Vec::new();
+    let mut batch_meta: Vec<(String, u64)> = Vec::new();
+    let mut batch_bytes: u64 = 0;
+    let mut fatal: Option<ArchiveError> = None;
+
+    let mut step = |entry: &ArchiveEntry, data: &mut dyn Read| -> Result<()> {
+        let name = entry.name().to_string();
+        let trimmed = trim_name(&name);
+
+        match &kind {
+            EditKind::Delete(targets) => {
+                if targets.iter().any(|t| entry_matches(&name, t)) {
+                    drain_entry(data)?;
+                    progress_add(1);
+                    return Ok(());
+                }
+            }
+            EditKind::Add { replace } => {
+                if replace.contains(&trimmed) {
+                    drain_entry(data)?;
+                    progress_add(1);
+                    return Ok(());
+                }
+            }
+            EditKind::Rename { .. } | EditKind::Meta { .. } => {}
+        }
+
+        let mut out = entry.clone();
+        match &kind {
+            EditKind::Rename { from, to } => {
+                if entry_matches(&name, from) {
+                    let rest = trimmed[from.len()..].to_string();
+                    out.name = format!("{to}{rest}");
+                }
+            }
+            EditKind::Meta {
+                target,
+                modified_millis,
+            } => {
+                if trimmed == *target {
+                    let st = std::time::SystemTime::UNIX_EPOCH
+                        + std::time::Duration::from_millis(*modified_millis);
+                    let nt = NtTime::try_from(st)
+                        .map_err(|_| ArchiveError::invalid("modified time out of range"))?;
+                    out.last_modified_date = nt;
+                    out.has_last_modified_date = true;
+                }
+            }
+            EditKind::Delete(_) | EditKind::Add { .. } => {}
+        }
+
+        let final_name = out.name.clone();
+        if out.is_directory || !out.has_stream {
+            flush_solid_batch(
+                &mut writer,
+                &mut batch_entries,
+                &mut batch_readers,
+                &mut batch_meta,
+                &mut state,
+            )?;
+            batch_bytes = 0;
+            writer
+                .push_archive_entry::<io::Empty>(out, None)
+                .map_err(map_err)?;
+            progress_add(1);
+            return Ok(());
+        }
+
+        let declared = entry.size();
+        state.begin_entry(&final_name, Some(declared))?;
+        if declared >= SOLID_MAX_BYTES {
+            flush_solid_batch(
+                &mut writer,
+                &mut batch_entries,
+                &mut batch_readers,
+                &mut batch_meta,
+                &mut state,
+            )?;
+            batch_bytes = 0;
+            let allowance = state.allowance(Some(declared));
+            let mut limited = LimitedReader::new(data, allowance);
+            writer
+                .push_archive_entry(out, Some(&mut limited))
+                .map_err(map_err)?;
+            state.finish_entry(&final_name, Some(declared), declared)?;
+        } else {
+            if batch_entries.len() >= SOLID_MAX_FILES
+                || batch_bytes.saturating_add(declared) > SOLID_MAX_BYTES
+            {
+                flush_solid_batch(
+                    &mut writer,
+                    &mut batch_entries,
+                    &mut batch_readers,
+                    &mut batch_meta,
+                    &mut state,
+                )?;
+                batch_bytes = 0;
+            }
+            let allowance = state.allowance(Some(declared));
+            let mut limited = LimitedReader::new(data, allowance);
+            let mut buf = Vec::with_capacity(declared as usize);
+            io::copy(&mut limited, &mut buf).map_err(classify_io)?;
+            let reader: Box<dyn Read> = Box::new(io::Cursor::new(buf));
+            batch_bytes = batch_bytes.saturating_add(declared);
+            batch_entries.push(out);
+            batch_readers.push(SourceReader::new(reader));
+            batch_meta.push((final_name, declared));
+        }
+        progress_add(1);
+        Ok(())
+    };
+
+    let result = reader.for_each_entries(|entry, data| {
+        if fatal.is_some() {
+            return Ok(true);
+        }
+        if is_cancelled() {
+            fatal = Some(ArchiveError::Cancelled);
+            return Err(sevenz_rust2::Error::Unsupported("karchiver fatal".into()));
+        }
+        match step(entry, data) {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                fatal = Some(e);
+                Err(sevenz_rust2::Error::Unsupported("karchiver fatal".into()))
+            }
+        }
+    });
+    if let Some(e) = fatal {
+        return Err(e);
+    }
+    result.map_err(|e| map_open_err_pw(e, have_password))?;
+
+    for e in additions {
+        check_cancelled()?;
+        if e.is_dir {
+            flush_solid_batch(
+                &mut writer,
+                &mut batch_entries,
+                &mut batch_readers,
+                &mut batch_meta,
+                &mut state,
+            )?;
+            batch_bytes = 0;
+            let entry = ArchiveEntry::new_directory(&e.name);
+            writer
+                .push_archive_entry::<io::Empty>(entry, None)
+                .map_err(map_err)?;
+            progress_add(1);
+            continue;
+        }
+        state.begin_entry(&e.name, Some(e.size))?;
+        let entry = ArchiveEntry::from_path(&e.path, e.name.clone());
+        let allowance = state.allowance(Some(e.size));
+        let reader: Box<dyn Read> = if e.size == 0 {
+            Box::new(io::empty())
+        } else {
+            Box::new(LimitedReader::new(
+                BufReader::with_capacity(READ_BUF_CAP, File::open(&e.path)?),
+                allowance,
+            ))
+        };
+        batch_bytes = batch_bytes.saturating_add(e.size);
+        batch_entries.push(entry);
+        batch_readers.push(SourceReader::new(reader));
+        batch_meta.push((e.name.clone(), e.size));
+        if batch_entries.len() >= SOLID_MAX_FILES || batch_bytes >= SOLID_MAX_BYTES {
+            flush_solid_batch(
+                &mut writer,
+                &mut batch_entries,
+                &mut batch_readers,
+                &mut batch_meta,
+                &mut state,
+            )?;
+            batch_bytes = 0;
+        }
+        progress_add(1);
+    }
+    flush_solid_batch(
+        &mut writer,
+        &mut batch_entries,
+        &mut batch_readers,
+        &mut batch_meta,
+        &mut state,
+    )?;
+
+    writer.finish()?;
+    af.commit()
+}
+
+pub fn delete_entries(archive: &Path, names: &[String]) -> Result<()> {
+    delete_impl(archive, names, None)
+}
+
+pub fn delete_entries_with_password(
+    archive: &Path,
+    names: &[String],
+    password: &str,
+) -> Result<()> {
+    if password.is_empty() {
+        return delete_entries(archive, names);
+    }
+    delete_impl(archive, names, Some(password))
+}
+
+fn delete_impl(archive: &Path, names: &[String], password: Option<&str>) -> Result<()> {
+    let targets = normalize_targets(names)?;
+    if targets.is_empty() {
+        return Ok(());
+    }
+    edit_impl(archive, password, EditKind::Delete(targets), &[])
+}
+
+pub fn rename_entry(archive: &Path, from: &str, to: &str) -> Result<()> {
+    rename_impl(archive, from, to, None)
+}
+
+pub fn rename_entry_with_password(
+    archive: &Path,
+    from: &str,
+    to: &str,
+    password: &str,
+) -> Result<()> {
+    if password.is_empty() {
+        return rename_entry(archive, from, to);
+    }
+    rename_impl(archive, from, to, Some(password))
+}
+
+fn rename_impl(archive: &Path, from: &str, to: &str, password: Option<&str>) -> Result<()> {
+    let from_s = trim_name(&sanitize_entry_name(from)?);
+    let to_s = trim_name(&sanitize_entry_name(to)?);
+    if from_s.is_empty() || to_s.is_empty() {
+        return Err(ArchiveError::invalid("empty entry name"));
+    }
+    if from_s == to_s {
+        return Ok(());
+    }
+    if to_s.starts_with(&format!("{from_s}/")) {
+        return Err(ArchiveError::invalid(format!(
+            "cannot rename '{from_s}' onto '{to_s}'"
+        )));
+    }
+    edit_impl(
+        archive,
+        password,
+        EditKind::Rename {
+            from: from_s,
+            to: to_s,
+        },
+        &[],
+    )
+}
+
+pub fn add_files(archive: &Path, sources: &[PathBuf], dest_dir: &str) -> Result<()> {
+    add_impl(archive, sources, dest_dir, None)
+}
+
+pub fn add_files_with_password(
+    archive: &Path,
+    sources: &[PathBuf],
+    dest_dir: &str,
+    password: &str,
+) -> Result<()> {
+    if password.is_empty() {
+        return add_files(archive, sources, dest_dir);
+    }
+    add_impl(archive, sources, dest_dir, Some(password))
+}
+
+fn add_impl(
+    archive: &Path,
+    sources: &[PathBuf],
+    dest_dir: &str,
+    password: Option<&str>,
+) -> Result<()> {
+    let prefix = normalize_dest_dir(dest_dir)?;
+    let mut additions = collect_sources(sources, &[archive], &Limits::default())?;
+    if !prefix.is_empty() {
+        for e in &mut additions {
+            e.name = format!("{prefix}/{}", e.name);
+        }
+    }
+    if additions.is_empty() {
+        return Err(ArchiveError::invalid("no files to add"));
+    }
+    let replace: HashSet<String> = additions.iter().map(|e| trim_name(&e.name)).collect();
+    edit_impl(archive, password, EditKind::Add { replace }, &additions)
+}
+
+pub fn set_entry_meta(
+    archive: &Path,
+    name: &str,
+    modified_millis: Option<u64>,
+    mode: Option<u32>,
+    password: Option<&str>,
+) -> Result<()> {
+    if mode.is_some() {
+        return Err(ArchiveError::Unsupported(
+            "7z archives do not support changing entry metadata".to_string(),
+        ));
+    }
+    let Some(ms) = modified_millis else {
+        return Ok(());
+    };
+    let target = trim_name(&sanitize_entry_name(name)?);
+    if target.is_empty() {
+        return Err(ArchiveError::invalid("empty entry name"));
+    }
+    edit_impl(
+        archive,
+        password,
+        EditKind::Meta {
+            target,
+            modified_millis: ms,
+        },
+        &[],
+    )
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::*;
+    use crate::backend::list_detailed;
+    use crate::format::Format;
+    use tempfile::tempdir;
+
+    const PASSWORD: &str = "correct-horse-7";
+
+    fn make_7z(dir: &Path) -> PathBuf {
+        let src = dir.join("src");
+        std::fs::create_dir_all(src.join("mydir/sub")).unwrap();
+        std::fs::write(src.join("a.txt"), b"aaa").unwrap();
+        std::fs::write(src.join("mydir/b.txt"), b"bbb").unwrap();
+        std::fs::write(src.join("mydir/sub/c.txt"), b"ccc").unwrap();
+        let dest = dir.join("t.7z");
+        crate::backend::compress(
+            std::slice::from_ref(&src),
+            &dest,
+            Format::SevenZ,
+            &Limits::default(),
+        )
+        .unwrap();
+        dest
+    }
+
+    fn names_of(archive: &Path) -> Vec<String> {
+        let listing = list_detailed(archive, Format::SevenZ).unwrap();
+        let mut v: Vec<String> = listing.entries.iter().map(|e| e.name.clone()).collect();
+        v.sort();
+        v
+    }
+
+    fn has_entry(archive: &Path, suffix: &str) -> bool {
+        names_of(archive).iter().any(|n| n.ends_with(suffix))
+    }
+
+    fn extract_to(archive: &Path, dir: &Path) -> PathBuf {
+        let out = dir.join("out");
+        crate::backend::extract(archive, &out, Format::SevenZ, &Limits::default()).unwrap();
+        out
+    }
+
+    #[test]
+    fn delete_file_keeps_others() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        crate::backend::delete_entries(&archive, Format::SevenZ, &["src/a.txt".to_string()])
+            .unwrap();
+        assert!(!has_entry(&archive, "a.txt"));
+        assert!(has_entry(&archive, "b.txt"));
+        let out = extract_to(&archive, dir.path());
+        assert!(!out.join("src/a.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/mydir/b.txt")).unwrap(),
+            "bbb"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/mydir/sub/c.txt")).unwrap(),
+            "ccc"
+        );
+    }
+
+    #[test]
+    fn delete_dir_subtree() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        crate::backend::delete_entries(&archive, Format::SevenZ, &["src/mydir".to_string()])
+            .unwrap();
+        let names = names_of(&archive);
+        assert!(names.iter().all(|n| !n.contains("mydir")));
+        assert!(has_entry(&archive, "a.txt"));
+        let out = extract_to(&archive, dir.path());
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/a.txt")).unwrap(),
+            "aaa"
+        );
+        assert!(!out.join("src/mydir").exists());
+    }
+
+    #[test]
+    fn rename_file() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        crate::backend::rename_entry(&archive, Format::SevenZ, "src/a.txt", "src/z.txt").unwrap();
+        assert!(!has_entry(&archive, "a.txt"));
+        assert!(has_entry(&archive, "z.txt"));
+        let out = extract_to(&archive, dir.path());
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/z.txt")).unwrap(),
+            "aaa"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/mydir/b.txt")).unwrap(),
+            "bbb"
+        );
+    }
+
+    #[test]
+    fn rename_dir_prefix() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        crate::backend::rename_entry(&archive, Format::SevenZ, "src/mydir", "src/renamed").unwrap();
+        assert!(has_entry(&archive, "renamed/b.txt"));
+        assert!(has_entry(&archive, "renamed/sub/c.txt"));
+        assert!(!names_of(&archive).iter().any(|n| n.contains("mydir")));
+        let out = extract_to(&archive, dir.path());
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/renamed/b.txt")).unwrap(),
+            "bbb"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/renamed/sub/c.txt")).unwrap(),
+            "ccc"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/a.txt")).unwrap(),
+            "aaa"
+        );
+    }
+
+    #[test]
+    fn rename_collision_errors() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        let r =
+            crate::backend::rename_entry(&archive, Format::SevenZ, "src/a.txt", "src/mydir/b.txt");
+        assert!(r.is_err());
+        assert!(has_entry(&archive, "a.txt"));
+        assert!(has_entry(&archive, "mydir/b.txt"));
+    }
+
+    #[test]
+    fn rename_missing_entry_errors() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        let r = crate::backend::rename_entry(&archive, Format::SevenZ, "src/nope.txt", "src/z.txt");
+        assert!(matches!(r, Err(ArchiveError::Invalid(_))));
+    }
+
+    #[test]
+    fn add_files_nested() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        let extra = dir.path().join("extra");
+        std::fs::create_dir_all(extra.join("nest")).unwrap();
+        std::fs::write(extra.join("new.txt"), b"new").unwrap();
+        std::fs::write(extra.join("nest/deep.txt"), b"deep").unwrap();
+        crate::backend::add_files(&archive, Format::SevenZ, &[extra], "added").unwrap();
+        assert!(has_entry(&archive, "added/extra/new.txt"));
+        assert!(has_entry(&archive, "added/extra/nest/deep.txt"));
+        assert!(has_entry(&archive, "a.txt"));
+        let out = extract_to(&archive, dir.path());
+        assert_eq!(
+            std::fs::read_to_string(out.join("added/extra/new.txt")).unwrap(),
+            "new"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/a.txt")).unwrap(),
+            "aaa"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/mydir/sub/c.txt")).unwrap(),
+            "ccc"
+        );
+    }
+
+    #[test]
+    fn add_single_file() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        let extra = dir.path().join("extra.txt");
+        std::fs::write(&extra, b"new").unwrap();
+        crate::backend::add_files(&archive, Format::SevenZ, &[extra], "added").unwrap();
+        assert!(has_entry(&archive, "added/extra.txt"));
+        assert!(has_entry(&archive, "a.txt"));
+        let out = extract_to(&archive, dir.path());
+        assert_eq!(
+            std::fs::read_to_string(out.join("added/extra.txt")).unwrap(),
+            "new"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/a.txt")).unwrap(),
+            "aaa"
+        );
+    }
+
+    #[test]
+    fn password_delete_roundtrip() {
+        let dir = tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), b"secret").unwrap();
+        std::fs::write(src.join("keep.txt"), b"keep").unwrap();
+        let dest = dir.path().join("p.7z");
+        crate::backend::compress_with_password(
+            std::slice::from_ref(&src),
+            &dest,
+            Format::SevenZ,
+            &Limits::default(),
+            PASSWORD,
+        )
+        .unwrap();
+        crate::backend::delete_entries_with_password(
+            &dest,
+            Format::SevenZ,
+            &["src/a.txt".to_string()],
+            PASSWORD.as_bytes(),
+        )
+        .unwrap();
+
+        match crate::backend::list_detailed(&dest, Format::SevenZ) {
+            Err(ArchiveError::PasswordRequired(_)) => {}
+            other => panic!("expected PasswordRequired, got {other:?}"),
+        }
+        let out = dir.path().join("out");
+        match crate::backend::extract(&dest, &out, Format::SevenZ, &Limits::default()) {
+            Err(ArchiveError::PasswordRequired(_)) => {}
+            other => panic!("expected PasswordRequired, got {other:?}"),
+        }
+
+        crate::backend::extract_with_password(
+            &dest,
+            &out,
+            Format::SevenZ,
+            &Limits::default(),
+            PASSWORD,
+        )
+        .unwrap();
+        assert!(!out.join("src/a.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/keep.txt")).unwrap(),
+            "keep"
+        );
+    }
+
+    #[test]
+    fn password_rename_roundtrip() {
+        let dir = tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("old.txt"), b"old").unwrap();
+        let dest = dir.path().join("p.7z");
+        crate::backend::compress_with_password(
+            std::slice::from_ref(&src),
+            &dest,
+            Format::SevenZ,
+            &Limits::default(),
+            PASSWORD,
+        )
+        .unwrap();
+        crate::backend::rename_entry_with_password(
+            &dest,
+            Format::SevenZ,
+            "src/old.txt",
+            "src/new.txt",
+            PASSWORD.as_bytes(),
+        )
+        .unwrap();
+        let out = dir.path().join("out");
+        crate::backend::extract_with_password(
+            &dest,
+            &out,
+            Format::SevenZ,
+            &Limits::default(),
+            PASSWORD,
+        )
+        .unwrap();
+        assert!(!out.join("src/old.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/new.txt")).unwrap(),
+            "old"
+        );
+    }
+
+    #[test]
+    fn password_add_roundtrip() {
+        let dir = tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), b"aaa").unwrap();
+        let dest = dir.path().join("p.7z");
+        crate::backend::compress_with_password(
+            std::slice::from_ref(&src),
+            &dest,
+            Format::SevenZ,
+            &Limits::default(),
+            PASSWORD,
+        )
+        .unwrap();
+        let extra = dir.path().join("extra.txt");
+        std::fs::write(&extra, b"new").unwrap();
+        crate::backend::add_files_with_password(
+            &dest,
+            Format::SevenZ,
+            &[extra],
+            "added",
+            PASSWORD.as_bytes(),
+        )
+        .unwrap();
+        let out = dir.path().join("out");
+        crate::backend::extract_with_password(
+            &dest,
+            &out,
+            Format::SevenZ,
+            &Limits::default(),
+            PASSWORD,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(out.join("added/extra.txt")).unwrap(),
+            "new"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/a.txt")).unwrap(),
+            "aaa"
+        );
+    }
+
+    #[test]
+    fn plain_edit_of_encrypted_requires_password() {
+        let dir = tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), b"secret").unwrap();
+        let dest = dir.path().join("p.7z");
+        crate::backend::compress_with_password(
+            std::slice::from_ref(&src),
+            &dest,
+            Format::SevenZ,
+            &Limits::default(),
+            PASSWORD,
+        )
+        .unwrap();
+        match crate::backend::delete_entries(&dest, Format::SevenZ, &["src/a.txt".to_string()]) {
+            Err(ArchiveError::PasswordRequired(_)) => {}
+            other => panic!("expected PasswordRequired, got {other:?}"),
+        }
+        let listing =
+            crate::backend::list_detailed_with_password(&dest, Format::SevenZ, PASSWORD).unwrap();
+        assert!(listing.entries.iter().any(|e| e.name.ends_with("a.txt")));
+    }
+
+    #[test]
+    fn set_entry_meta_updates_mtime() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        let before = list_detailed(&archive, Format::SevenZ).unwrap();
+        let other_modified = before
+            .entries
+            .iter()
+            .find(|e| e.name.ends_with("b.txt"))
+            .unwrap()
+            .modified;
+
+        let target_ms = 1_600_000_000_000u64;
+        crate::backend::set_entry_meta(
+            &archive,
+            Format::SevenZ,
+            "src/a.txt",
+            Some(target_ms),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let after = list_detailed(&archive, Format::SevenZ).unwrap();
+        let a = after
+            .entries
+            .iter()
+            .find(|e| e.name.ends_with("a.txt"))
+            .unwrap();
+        assert_eq!(a.modified, target_ms);
+        let b = after
+            .entries
+            .iter()
+            .find(|e| e.name.ends_with("b.txt"))
+            .unwrap();
+        assert_eq!(b.modified, other_modified);
+
+        let out = extract_to(&archive, dir.path());
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/a.txt")).unwrap(),
+            "aaa"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("src/mydir/b.txt")).unwrap(),
+            "bbb"
+        );
+    }
+
+    #[test]
+    fn set_entry_meta_mode_stays_unsupported() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        let r = crate::backend::set_entry_meta(
+            &archive,
+            Format::SevenZ,
+            "src/a.txt",
+            None,
+            Some(0o600),
+            None,
+        );
+        assert!(matches!(r, Err(ArchiveError::Unsupported(_))));
+        let r2 = crate::backend::set_entry_meta(
+            &archive,
+            Format::SevenZ,
+            "src/a.txt",
+            Some(1_600_000_000_000),
+            Some(0o600),
+            None,
+        );
+        assert!(matches!(r2, Err(ArchiveError::Unsupported(_))));
+        assert!(has_entry(&archive, "a.txt"));
+    }
+
+    #[test]
+    fn set_entry_meta_missing_entry_errors() {
+        let dir = tempdir().unwrap();
+        let archive = make_7z(dir.path());
+        let r = crate::backend::set_entry_meta(
+            &archive,
+            Format::SevenZ,
+            "src/nope.txt",
+            Some(1_600_000_000_000),
+            None,
+            None,
+        );
+        assert!(matches!(r, Err(ArchiveError::Invalid(_))));
+    }
 }

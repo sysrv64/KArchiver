@@ -29,6 +29,15 @@ use crate::io_util::{
     reject_symlink_ancestors, safe_join, safe_link_target, sanitize_entry_name, set_file_mode,
 };
 
+fn source_mtime(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .and_then(|md| md.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn add_entry<W: Write>(
     builder: &mut Builder<W>,
     entry: &SourceEntry,
@@ -40,7 +49,7 @@ fn add_entry<W: Write>(
         header.set_entry_type(EntryType::Directory);
         header.set_mode(0o755);
         header.set_size(0);
-        header.set_mtime(0);
+        header.set_mtime(source_mtime(&entry.path));
         header.set_cksum();
         builder
             .append_data(&mut header, &entry.name, io::empty())
@@ -51,7 +60,7 @@ fn add_entry<W: Write>(
     header.set_entry_type(EntryType::Regular);
     header.set_mode(0o644);
     header.set_size(entry.size);
-    header.set_mtime(0);
+    header.set_mtime(source_mtime(&entry.path));
     header.set_cksum();
 
     state.begin_entry(&entry.name, Some(entry.size))?;
@@ -175,6 +184,22 @@ fn open_tar_reader(archive: &Path, format: Format) -> Result<Box<dyn Read>> {
     Ok(reader)
 }
 
+fn link_or_copy(target: &Path, out: &Path) -> Result<()> {
+    match std::fs::hard_link(target, out) {
+        Ok(()) => Ok(()),
+        Err(link_err) => match std::fs::copy(target, out) {
+            Ok(_) => Ok(()),
+            Err(copy_err) => {
+                log_warn(format!(
+                    "skipping hardlink {}: {link_err} (copy failed: {copy_err})",
+                    out.display()
+                ));
+                Ok(())
+            }
+        },
+    }
+}
+
 fn extract_entry<R: Read>(
     entry: &mut tar::Entry<'_, R>,
     root: &Path,
@@ -233,7 +258,7 @@ fn extract_entry<R: Read>(
             .map_err(ArchiveError::backend)?
             .ok_or_else(|| ArchiveError::invalid("hardlink without target"))?;
         let target = safe_join(root, &target.to_string_lossy())?;
-        std::fs::hard_link(&target, &out)?;
+        link_or_copy(&target, &out)?;
         return Ok(());
     }
 
@@ -673,60 +698,25 @@ fn collect_tar_add_sources(sources: &[PathBuf], dest_dir: &str) -> Result<Vec<Ta
     Ok(out)
 }
 
-struct StagedTar {
-    name: String,
-    header: Header,
-    data: Vec<u8>,
+enum EditOp<'a> {
+    Delete(&'a [String]),
+    Rename {
+        from: &'a str,
+        to: &'a str,
+    },
+    Add(&'a [TarAddSource]),
+    Meta {
+        target: &'a str,
+        modified_millis: Option<u64>,
+        mode: Option<u32>,
+    },
 }
 
-const STAGED_TAR_MAX_BYTES: u64 = 256 * 1024 * 1024;
-
-fn read_all_tar(archive: &Path, format: Format, limits: &Limits) -> Result<Vec<StagedTar>> {
+fn edit_tar(archive: &Path, format: Format, op: &EditOp<'_>) -> Result<()> {
+    progress_reset(0);
     let reader = open_tar_reader(archive, format)?;
     let mut tar = Archive::new(reader);
-    let mut out = Vec::new();
-    let mut state = LimitState::new(limits);
-    let mut staged_bytes: u64 = 0;
-    for entry in tar.entries().map_err(ArchiveError::backend)? {
-        check_cancelled()?;
-        let mut entry = entry.map_err(ArchiveError::backend)?;
-        let name = entry
-            .path()
-            .map(|p| p.to_string_lossy().into_owned())
-            .map_err(ArchiveError::backend)?;
-        let header = entry.header().clone();
-        let et = header.entry_type();
-        state.begin_entry(&name, Some(0))?;
-        let mut data = Vec::new();
-        if et.is_file() {
-            let declared = entry.size();
-            if declared > limits.max_entry_size {
-                return Err(ArchiveError::limit(format!(
-                    "entry '{name}' exceeds per-entry limit"
-                )));
-            }
-            staged_bytes = staged_bytes.saturating_add(declared);
-            if staged_bytes > STAGED_TAR_MAX_BYTES {
-                return Err(ArchiveError::limit(format!(
-                    "staged tar data exceeds {STAGED_TAR_MAX_BYTES} bytes"
-                )));
-            }
-            let allowance = limits.max_entry_size.min(declared.saturating_add(1));
-            let mut limited = LimitedReader::new(&mut entry, allowance);
-            limited.read_to_end(&mut data).map_err(classify_io)?;
-        }
-        out.push(StagedTar { name, header, data });
-    }
-    Ok(out)
-}
-
-fn write_staged_tar(
-    staged: &[StagedTar],
-    additions: &[TarAddSource],
-    dest: &Path,
-    format: Format,
-) -> Result<()> {
-    let af = AtomicFile::new(dest)?;
+    let af = AtomicFile::new(archive)?;
     let out = File::options()
         .write(true)
         .create_new(true)
@@ -735,14 +725,14 @@ fn write_staged_tar(
     match format {
         Format::Tar => {
             let mut builder = Builder::new(buf);
-            write_staged_inner(&mut builder, staged, additions)?;
+            edit_tar_inner(&mut builder, &mut tar, op)?;
             let inner = builder.into_inner().map_err(ArchiveError::backend)?;
             finish_bufwriter(inner)?;
         }
         Format::TarGz => {
             let enc = GzEncoder::new(buf, GzCompression::default());
             let mut builder = Builder::new(enc);
-            write_staged_inner(&mut builder, staged, additions)?;
+            edit_tar_inner(&mut builder, &mut tar, op)?;
             let enc = builder.into_inner().map_err(ArchiveError::backend)?;
             let inner = enc.finish()?;
             finish_bufwriter(inner)?;
@@ -750,7 +740,7 @@ fn write_staged_tar(
         Format::TarBz2 => {
             let enc = BzEncoder::new(buf, BzCompression::default());
             let mut builder = Builder::new(enc);
-            write_staged_inner(&mut builder, staged, additions)?;
+            edit_tar_inner(&mut builder, &mut tar, op)?;
             let enc = builder.into_inner().map_err(ArchiveError::backend)?;
             let inner = enc.finish()?;
             finish_bufwriter(inner)?;
@@ -758,7 +748,7 @@ fn write_staged_tar(
         Format::TarXz => {
             let enc = XzWriter::new(buf, XzOptions::with_preset(6))?;
             let mut builder = Builder::new(enc);
-            write_staged_inner(&mut builder, staged, additions)?;
+            edit_tar_inner(&mut builder, &mut tar, op)?;
             let enc = builder.into_inner().map_err(ArchiveError::backend)?;
             let inner = enc.finish()?;
             finish_bufwriter(inner)?;
@@ -766,7 +756,7 @@ fn write_staged_tar(
         Format::TarZst => {
             let enc = ZstdEncoder::new(buf, 3)?;
             let mut builder = Builder::new(enc);
-            write_staged_inner(&mut builder, staged, additions)?;
+            edit_tar_inner(&mut builder, &mut tar, op)?;
             let enc = builder.into_inner().map_err(ArchiveError::backend)?;
             let inner = enc.finish()?;
             finish_bufwriter(inner)?;
@@ -774,7 +764,7 @@ fn write_staged_tar(
         Format::TarLz4 => {
             let enc = FrameEncoder::new(buf);
             let mut builder = Builder::new(enc);
-            write_staged_inner(&mut builder, staged, additions)?;
+            edit_tar_inner(&mut builder, &mut tar, op)?;
             let enc = builder.into_inner().map_err(ArchiveError::backend)?;
             let inner = enc.finish().map_err(ArchiveError::backend)?;
             finish_bufwriter(inner)?;
@@ -789,52 +779,138 @@ fn write_staged_tar(
     af.commit()
 }
 
-fn write_staged_inner<W: Write>(
+fn edit_tar_inner<W: Write>(
     builder: &mut Builder<W>,
-    staged: &[StagedTar],
-    additions: &[TarAddSource],
+    tar: &mut Archive<Box<dyn Read>>,
+    op: &EditOp<'_>,
 ) -> Result<()> {
-    for s in staged {
+    let mut found = false;
+    let mut outside: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut candidates: Vec<String> = Vec::new();
+    let add_set: std::collections::HashSet<String> = match op {
+        EditOp::Add(additions) => additions.iter().map(|a| trim_tar_name(&a.name)).collect(),
+        _ => std::collections::HashSet::new(),
+    };
+    for entry in tar.entries().map_err(ArchiveError::backend)? {
         check_cancelled()?;
-        let mut header = s.header.clone();
-        header
-            .set_path(s.name.clone())
+        let mut entry = entry.map_err(ArchiveError::backend)?;
+        let name = entry
+            .path()
+            .map(|p| p.to_string_lossy().into_owned())
             .map_err(ArchiveError::backend)?;
-        header.set_cksum();
+        let out_name = match op {
+            EditOp::Delete(targets) => {
+                if targets.iter().any(|t| tar_matches(&name, t)) {
+                    progress_add(1);
+                    continue;
+                }
+                sanitize_entry_name(&name).unwrap_or_else(|_| name.clone())
+            }
+            EditOp::Rename { from, to } => {
+                let trimmed = trim_tar_name(&name);
+                if tar_matches(&name, from) {
+                    found = true;
+                    let rest = trimmed[from.len()..].to_string();
+                    let candidate = format!("{to}{rest}");
+                    candidates.push(candidate.clone());
+                    candidate
+                } else {
+                    outside.insert(trimmed.clone());
+                    trimmed
+                }
+            }
+            EditOp::Add(_) => {
+                let trimmed = trim_tar_name(&name);
+                if add_set.contains(&trimmed) {
+                    progress_add(1);
+                    continue;
+                }
+                trimmed
+            }
+            EditOp::Meta { target, .. } => {
+                if trim_tar_name(&name) == *target {
+                    found = true;
+                }
+                name.clone()
+            }
+        };
+        let mut header = entry.header().clone();
+        if let EditOp::Meta {
+            target,
+            modified_millis,
+            mode,
+        } = op
+            && trim_tar_name(&name) == *target
+        {
+            if let Some(ms) = *modified_millis {
+                header.set_mtime(ms / 1_000);
+            }
+            if let Some(m) = *mode {
+                header.set_mode(m);
+            }
+        }
         builder
-            .append_data(&mut header, s.name.clone(), &s.data[..])
+            .append_data(&mut header, &out_name, &mut entry)
             .map_err(ArchiveError::backend)?;
         progress_add(1);
     }
-    let mut ordered: Vec<&TarAddSource> = additions.iter().collect();
-    ordered.sort_by(|a, b| a.name.cmp(&b.name));
-    for a in ordered {
-        check_cancelled()?;
-        if a.is_dir {
-            let mut header = Header::new_gnu();
-            header.set_entry_type(EntryType::Directory);
-            header.set_mode(0o755);
-            header.set_size(0);
-            header.set_mtime(0);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, a.name.clone(), io::empty())
-                .map_err(ArchiveError::backend)?;
-        } else {
-            let size = std::fs::metadata(&a.path)?.len();
-            let mut header = Header::new_gnu();
-            header.set_entry_type(EntryType::Regular);
-            header.set_mode(0o644);
-            header.set_size(size);
-            header.set_mtime(0);
-            header.set_cksum();
-            let file = File::open(&a.path)?;
-            let mut reader = BufReader::new(file);
-            builder
-                .append_data(&mut header, a.name.clone(), &mut reader)
-                .map_err(ArchiveError::backend)?;
+    match op {
+        EditOp::Rename { from, to } => {
+            if !found {
+                return Err(ArchiveError::invalid(format!("entry '{from}' not found")));
+            }
+            for candidate in &candidates {
+                if outside.contains(candidate) {
+                    return Err(ArchiveError::invalid(format!(
+                        "entry '{candidate}' already exists"
+                    )));
+                }
+            }
+            if outside.contains(*to) {
+                return Err(ArchiveError::invalid(format!(
+                    "entry '{to}' already exists"
+                )));
+            }
         }
-        progress_add(1);
+        EditOp::Meta { target, .. } => {
+            if !found {
+                return Err(ArchiveError::invalid(format!("entry '{target}' not found")));
+            }
+        }
+        EditOp::Delete(_) | EditOp::Add(_) => {}
+    }
+    if let EditOp::Add(additions) = op {
+        let mut ordered: Vec<&TarAddSource> = additions.iter().collect();
+        ordered.sort_by(|a, b| a.name.cmp(&b.name));
+        for a in ordered {
+            check_cancelled()?;
+            let mtime = source_mtime(&a.path);
+            if a.is_dir {
+                let mut header = Header::new_gnu();
+                header.set_entry_type(EntryType::Directory);
+                header.set_mode(0o755);
+                header.set_size(0);
+                header.set_mtime(mtime);
+                header.set_cksum();
+                builder
+                    .append_data(&mut header, &a.name, io::empty())
+                    .map_err(ArchiveError::backend)?;
+            } else {
+                let size = std::fs::metadata(&a.path)?.len();
+                let mut header = Header::new_gnu();
+                header.set_entry_type(EntryType::Regular);
+                header.set_mode(0o644);
+                header.set_size(size);
+                header.set_mtime(mtime);
+                header.set_cksum();
+                let file = File::open(&a.path)?;
+                let mut reader = BufReader::new(file);
+                builder
+                    .append_data(&mut header, &a.name, &mut reader)
+                    .map_err(ArchiveError::backend)?;
+            }
+            progress_add(1);
+        }
     }
     Ok(())
 }
@@ -844,17 +920,7 @@ pub fn delete_entries(archive: &Path, format: Format, names: &[String]) -> Resul
     if targets.is_empty() {
         return Ok(());
     }
-    let all = read_all_tar(archive, format, &Limits::default())?;
-    progress_reset(all.len() as u64);
-    let kept: Vec<StagedTar> = all
-        .into_iter()
-        .filter(|s| !targets.iter().any(|t| tar_matches(&s.name, t)))
-        .map(|mut s| {
-            s.name = sanitize_entry_name(&s.name).unwrap_or(s.name);
-            s
-        })
-        .collect();
-    write_staged_tar(&kept, &[], archive, format)
+    edit_tar(archive, format, &EditOp::Delete(&targets))
 }
 
 pub fn rename_entry(archive: &Path, format: Format, from: &str, to: &str) -> Result<()> {
@@ -871,57 +937,14 @@ pub fn rename_entry(archive: &Path, format: Format, from: &str, to: &str) -> Res
             "cannot rename '{from_s}' onto '{to_s}'"
         )));
     }
-    let all = read_all_tar(archive, format, &Limits::default())?;
-    let mut found = false;
-    for s in &all {
-        if tar_matches(&s.name, &from_s) {
-            found = true;
-            break;
-        }
-    }
-    if !found {
-        return Err(ArchiveError::invalid(format!("entry '{from_s}' not found")));
-    }
-    let outside: std::collections::HashSet<String> = all
-        .iter()
-        .filter(|s| !tar_matches(&s.name, &from_s))
-        .map(|s| trim_tar_name(&s.name))
-        .collect();
-    for s in &all {
-        if tar_matches(&s.name, &from_s) {
-            let trimmed = trim_tar_name(&s.name);
-            let rest = trimmed[from_s.len()..].to_string();
-            let candidate = format!("{to_s}{rest}");
-            if outside.contains(&candidate) {
-                return Err(ArchiveError::invalid(format!(
-                    "entry '{candidate}' already exists"
-                )));
-            }
-        }
-    }
-    if outside.contains(&to_s) {
-        return Err(ArchiveError::invalid(format!(
-            "entry '{to_s}' already exists"
-        )));
-    }
-    progress_reset(all.len() as u64);
-    let mut renamed: Vec<StagedTar> = Vec::with_capacity(all.len());
-    for s in all {
-        check_cancelled()?;
-        let new_name = if tar_matches(&s.name, &from_s) {
-            let trimmed = trim_tar_name(&s.name);
-            let rest = trimmed[from_s.len()..].to_string();
-            format!("{to_s}{rest}")
-        } else {
-            trim_tar_name(&s.name)
-        };
-        renamed.push(StagedTar {
-            name: new_name,
-            header: s.header,
-            data: s.data,
-        });
-    }
-    write_staged_tar(&renamed, &[], archive, format)
+    edit_tar(
+        archive,
+        format,
+        &EditOp::Rename {
+            from: &from_s,
+            to: &to_s,
+        },
+    )
 }
 
 pub fn add_files(
@@ -931,20 +954,7 @@ pub fn add_files(
     dest_dir: &str,
 ) -> Result<()> {
     let additions = collect_tar_add_sources(sources, dest_dir)?;
-    let all = read_all_tar(archive, format, &Limits::default())?;
-    let add_set: std::collections::HashSet<String> =
-        additions.iter().map(|a| trim_tar_name(&a.name)).collect();
-    progress_reset((all.len() + additions.len()) as u64);
-    let kept: Vec<StagedTar> = all
-        .into_iter()
-        .filter(|s| !add_set.contains(&trim_tar_name(&s.name)))
-        .map(|s| StagedTar {
-            name: trim_tar_name(&s.name),
-            header: s.header,
-            data: s.data,
-        })
-        .collect();
-    write_staged_tar(&kept, &additions, archive, format)
+    edit_tar(archive, format, &EditOp::Add(&additions))
 }
 
 pub fn set_entry_meta(
@@ -958,25 +968,15 @@ pub fn set_entry_meta(
     if target.is_empty() {
         return Err(ArchiveError::invalid("empty entry name"));
     }
-    let mut all = read_all_tar(archive, format, &Limits::default())?;
-    let mut found = false;
-    for s in &mut all {
-        check_cancelled()?;
-        if trim_tar_name(&s.name) == target {
-            found = true;
-            if let Some(ms) = modified_millis {
-                s.header.set_mtime(ms / 1_000);
-            }
-            if let Some(m) = mode {
-                s.header.set_mode(m);
-            }
-        }
-    }
-    if !found {
-        return Err(ArchiveError::invalid(format!("entry '{target}' not found")));
-    }
-    progress_reset(all.len() as u64);
-    write_staged_tar(&all, &[], archive, format)
+    edit_tar(
+        archive,
+        format,
+        &EditOp::Meta {
+            target: &target,
+            modified_millis,
+            mode,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1061,6 +1061,33 @@ mod edit_tests {
     }
 
     #[test]
+    fn tar_add_preserves_source_mtime() {
+        let dir = tempdir().unwrap();
+        let archive = make_tar(dir.path());
+        let extra = dir.path().join("extra.txt");
+        std::fs::write(&extra, b"new").unwrap();
+        let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&extra)
+            .unwrap();
+        file.set_modified(mtime).unwrap();
+        drop(file);
+        crate::backend::add_files(&archive, Format::Tar, &[extra], "added").unwrap();
+        let reader = File::open(&archive).unwrap();
+        let mut ar = Archive::new(reader);
+        let mut found = None;
+        for entry in ar.entries().unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.path().unwrap().to_string_lossy().into_owned();
+            if name == "added/extra.txt" {
+                found = entry.header().mtime().ok();
+            }
+        }
+        assert_eq!(found, Some(1_600_000_000));
+    }
+
+    #[test]
     fn tar_password_unsupported() {
         let dir = tempdir().unwrap();
         let archive = make_tar(dir.path());
@@ -1116,14 +1143,12 @@ mod edit_tests {
     }
 
     #[test]
-    fn read_all_tar_enforces_entry_limit() {
+    fn link_or_copy_happy_path() {
         let dir = tempdir().unwrap();
-        let archive = make_tar(dir.path());
-        let limits = Limits {
-            max_entries: 1,
-            ..Default::default()
-        };
-        let r = read_all_tar(&archive, Format::Tar, &limits);
-        assert!(r.is_err(), "staging must respect max_entries");
+        let target = dir.path().join("target.bin");
+        let out = dir.path().join("out.bin");
+        std::fs::write(&target, b"payload").unwrap();
+        link_or_copy(&target, &out).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"payload");
     }
 }

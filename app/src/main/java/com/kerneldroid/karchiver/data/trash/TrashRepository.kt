@@ -138,7 +138,18 @@ class TrashRepository private constructor(
         if (elevated != null && elevated.rename(src, dst)) return true
         val copied = runCatching {
             if (src.isDirectory) {
-                src.copyRecursively(dst, overwrite = false)
+                val part = File(dst.parentFile, ".${dst.name}.karchiver-part")
+                runCatching { if (part.exists()) part.deleteRecursively() }
+                val copiedPart = runCatching { src.copyRecursively(part, overwrite = false) }.getOrDefault(false)
+                if (!copiedPart) {
+                    runCatching { part.deleteRecursively() }
+                    false
+                } else if (!part.renameTo(dst)) {
+                    runCatching { part.deleteRecursively() }
+                    false
+                } else {
+                    true
+                }
             } else {
                 transactionalCopy(src, dst)
                 true
@@ -150,6 +161,10 @@ class TrashRepository private constructor(
         }.getOrDefault(false)
         if (!removed) {
             runCatching { dst.deleteRecursively() }
+            runCatching {
+                val part = File(dst.parentFile, ".${dst.name}.karchiver-part")
+                if (part.exists()) part.deleteRecursively()
+            }
             return false
         }
         return true

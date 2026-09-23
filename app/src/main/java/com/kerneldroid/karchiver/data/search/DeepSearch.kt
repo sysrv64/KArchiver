@@ -44,12 +44,15 @@ class DeepSearch(private val repo: FileSystemRepository) {
         val results = ArrayList<FileItem>()
         val stack = ArrayDeque<File>()
         stack.addLast(root)
+        val seen = HashSet<String>()
         var scanned = 0
         var capped = false
 
         while (stack.isNotEmpty()) {
             currentCoroutineContext().ensureActive()
             val dir = stack.removeLast()
+            val canonical = runCatching { dir.canonicalPath }.getOrDefault(dir.absolutePath)
+            if (!seen.add(canonical)) continue
             val entries = runCatching {
                 repo.listDir(dir, SortBy.NAME, ascending = true, foldersFirst = true, elevated = elevated)
             }.getOrDefault(emptyList())

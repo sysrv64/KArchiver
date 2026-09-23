@@ -561,7 +561,7 @@ class FileSystemRepository {
                 val code = if (password.isNullOrEmpty()) {
                     RustBridge.compress(taskId, srcPaths, outFile.absolutePath)
                 } else {
-                    RustBridge.compressWithPassword(taskId, srcPaths, outFile.absolutePath, password)
+                    withWipedPassword(password) { RustBridge.compressWithPassword(taskId, srcPaths, outFile.absolutePath, it) }
                 }
                 if (code != 0) error("Rust compress failed code=$code")
             }
@@ -618,7 +618,7 @@ class FileSystemRepository {
             val code = if (password.isNullOrEmpty()) {
                 RustBridge.extractFd(taskId, pfd.fd, destDir.absolutePath)
             } else {
-                RustBridge.extractWithPasswordFd(taskId, pfd.fd, destDir.absolutePath, password)
+                withWipedPassword(password) { RustBridge.extractWithPasswordFd(taskId, pfd.fd, destDir.absolutePath, it) }
             }
             code == 0
         } catch (_: Exception) {
@@ -693,7 +693,7 @@ class FileSystemRepository {
             val code = if (password.isNullOrEmpty()) {
                 RustBridge.extract(taskId, archive.absolutePath, destDir.absolutePath)
             } else {
-                RustBridge.extractWithPassword(taskId, archive.absolutePath, destDir.absolutePath, password)
+                withWipedPassword(password) { RustBridge.extractWithPassword(taskId, archive.absolutePath, destDir.absolutePath, it) }
             }
             if (code != 0) error("Rust extract failed code=$code")
         }
@@ -719,7 +719,7 @@ class FileSystemRepository {
                             val code = if (password.isNullOrEmpty()) {
                                 RustBridge.extractFd(taskId, pfd.fd, destDir.absolutePath)
                             } else {
-                                RustBridge.extractWithPasswordFd(taskId, pfd.fd, destDir.absolutePath, password)
+                                withWipedPassword(password) { RustBridge.extractWithPasswordFd(taskId, pfd.fd, destDir.absolutePath, it) }
                             }
                             if (code != 0) error("Rust extract failed code=$code")
                         } else {
@@ -802,7 +802,7 @@ class FileSystemRepository {
             val json = if (password.isNullOrEmpty()) {
                 RustBridge.listArchiveDetailedFd(pfd.fd)
             } else {
-                RustBridge.listArchiveDetailedWithPasswordFd(pfd.fd, password)
+                withWipedPassword(password) { RustBridge.listArchiveDetailedWithPasswordFd(pfd.fd, it) }
             }
             parsePreviewJson(json)
         } catch (_: Exception) {
@@ -819,7 +819,7 @@ class FileSystemRepository {
         val json = if (password.isNullOrEmpty()) {
             RustBridge.listArchiveDetailed(archive.absolutePath)
         } else {
-            RustBridge.listArchiveDetailedWithPassword(archive.absolutePath, password)
+            withWipedPassword(password) { RustBridge.listArchiveDetailedWithPassword(archive.absolutePath, it) }
         }
         return parsePreviewJson(json)
     }
@@ -840,7 +840,7 @@ class FileSystemRepository {
                         val json = if (password.isNullOrEmpty()) {
                             RustBridge.listArchiveDetailedFd(pfd.fd)
                         } else {
-                            RustBridge.listArchiveDetailedWithPasswordFd(pfd.fd, password)
+                            withWipedPassword(password) { RustBridge.listArchiveDetailedWithPasswordFd(pfd.fd, it) }
                         }
                         parsePreviewJson(json)
                     } finally {
@@ -889,7 +889,7 @@ class FileSystemRepository {
         maxBytes: Long
     ): List<ArchiveContentMatch> {
         if (!RustBridge.isLoaded()) error("Native engine required")
-        val json = RustBridge.searchArchiveContent(archive.absolutePath, needle, caseSensitive, maxBytes, "")
+        val json = withWipedPassword("") { RustBridge.searchArchiveContent(archive.absolutePath, needle, caseSensitive, maxBytes, it) }
         return parseSearchJson(json)
     }
 
@@ -906,7 +906,7 @@ class FileSystemRepository {
         if (archiveReadable) return null
         val pfd = bridge.openReadFdFor(archive, safVolumes) ?: return null
         return try {
-            parseSearchJson(RustBridge.searchArchiveContentFd(pfd.fd, needle, caseSensitive, maxBytes, ""))
+            parseSearchJson(withWipedPassword("") { RustBridge.searchArchiveContentFd(pfd.fd, needle, caseSensitive, maxBytes, it) })
         } catch (_: Exception) {
             null
         } finally {
@@ -958,7 +958,7 @@ class FileSystemRepository {
             val json = if (password.isNullOrEmpty()) {
                 RustBridge.testArchiveFd(pfd.fd)
             } else {
-                RustBridge.testArchiveWithPasswordFd(pfd.fd, password)
+                withWipedPassword(password) { RustBridge.testArchiveWithPasswordFd(pfd.fd, it) }
             }
             parseTestJson(json)
         } catch (_: Exception) {
@@ -975,7 +975,7 @@ class FileSystemRepository {
         val json = if (password.isNullOrEmpty()) {
             RustBridge.testArchive(archive.absolutePath)
         } else {
-            RustBridge.testArchiveWithPassword(archive.absolutePath, password)
+            withWipedPassword(password) { RustBridge.testArchiveWithPassword(archive.absolutePath, it) }
         }
         return parseTestJson(json)
     }
@@ -996,7 +996,7 @@ class FileSystemRepository {
                         val json = if (password.isNullOrEmpty()) {
                             RustBridge.testArchiveFd(pfd.fd)
                         } else {
-                            RustBridge.testArchiveWithPasswordFd(pfd.fd, password)
+                            withWipedPassword(password) { RustBridge.testArchiveWithPasswordFd(pfd.fd, it) }
                         }
                         parseTestJson(json)
                     } finally {
@@ -1154,7 +1154,7 @@ class FileSystemRepository {
             if (password.isNullOrEmpty()) {
                 RustBridge.deleteArchiveEntries(archive.absolutePath, names.toTypedArray())
             } else {
-                RustBridge.deleteArchiveEntriesWithPassword(archive.absolutePath, names.toTypedArray(), password)
+                withWipedPassword(password) { RustBridge.deleteArchiveEntriesWithPassword(archive.absolutePath, names.toTypedArray(), it) }
             }
         }
     }
@@ -1166,7 +1166,7 @@ class FileSystemRepository {
             if (password.isNullOrEmpty()) {
                 RustBridge.renameArchiveEntry(archive.absolutePath, from, to)
             } else {
-                RustBridge.renameArchiveEntryWithPassword(archive.absolutePath, from, to, password)
+                withWipedPassword(password) { RustBridge.renameArchiveEntryWithPassword(archive.absolutePath, from, to, it) }
             }
         }
     }
@@ -1180,7 +1180,7 @@ class FileSystemRepository {
             if (password.isNullOrEmpty()) {
                 RustBridge.addFilesToArchive(archive.absolutePath, srcPaths, destDir)
             } else {
-                RustBridge.addFilesToArchiveWithPassword(archive.absolutePath, srcPaths, destDir, password)
+                withWipedPassword(password) { RustBridge.addFilesToArchiveWithPassword(archive.absolutePath, srcPaths, destDir, it) }
             }
         }
     }
@@ -1196,9 +1196,9 @@ class FileSystemRepository {
             if (isRarArchive(archive)) error("Editing RAR archives is not supported")
             if (!archive.isFile || !archive.canWrite()) error("Editing requires a writable local file")
             if (password.isNullOrEmpty()) {
-                RustBridge.setArchiveEntryMeta(archive.absolutePath, entryName, modifiedMillis, mode, "")
+                withWipedPassword("") { RustBridge.setArchiveEntryMeta(archive.absolutePath, entryName, modifiedMillis, mode, it) }
             } else {
-                RustBridge.setArchiveEntryMeta(archive.absolutePath, entryName, modifiedMillis, mode, password)
+                withWipedPassword(password) { RustBridge.setArchiveEntryMeta(archive.absolutePath, entryName, modifiedMillis, mode, it) }
             }
         }.recoverCatching { e ->
             tryPfdSetArchiveEntryMeta(archive, entryName, modifiedMillis, mode, password)?.let { return@recoverCatching it }
@@ -1220,7 +1220,7 @@ class FileSystemRepository {
         if (archiveReadable) return null
         val pfd = bridge.openReadFdFor(archive, safVolumes) ?: return null
         return try {
-            RustBridge.setArchiveEntryMetaFd(pfd.fd, entryName, modifiedMillis, mode, password ?: "")
+            withWipedPassword(password ?: "") { RustBridge.setArchiveEntryMetaFd(pfd.fd, entryName, modifiedMillis, mode, it) }
             Unit
         } catch (_: Exception) {
             null
@@ -1252,7 +1252,7 @@ class FileSystemRepository {
             if (password.isNullOrEmpty()) {
                 RustBridge.extractFiltered(taskId, archive.absolutePath, destDir.absolutePath, names.toTypedArray())
             } else {
-                RustBridge.extractFilteredWithPassword(taskId, archive.absolutePath, destDir.absolutePath, names.toTypedArray(), password)
+                withWipedPassword(password) { RustBridge.extractFilteredWithPassword(taskId, archive.absolutePath, destDir.absolutePath, names.toTypedArray(), it) }
             }
             return
         }
@@ -1306,7 +1306,7 @@ class FileSystemRepository {
                 if (password.isNullOrEmpty()) {
                     RustBridge.extractFiltered(0L, effective.absolutePath, work.absolutePath, names.toTypedArray())
                 } else {
-                    RustBridge.extractFilteredWithPassword(0L, effective.absolutePath, work.absolutePath, names.toTypedArray(), password)
+                    withWipedPassword(password) { RustBridge.extractFilteredWithPassword(0L, effective.absolutePath, work.absolutePath, names.toTypedArray(), it) }
                 }
                 bridge.copyStagedOut(work, destDir, safVolumes)
             } finally {
@@ -1333,34 +1333,39 @@ object RustBridge {
     }
     @JvmStatic external fun setLogFile(path: String)
     @JvmStatic external fun compress(taskId: Long, srcPaths: Array<String>, destPath: String): Int
-    @JvmStatic external fun compressWithPassword(taskId: Long, srcPaths: Array<String>, destPath: String, password: String): Int
+    @JvmStatic external fun compressWithPassword(taskId: Long, srcPaths: Array<String>, destPath: String, password: ByteArray): Int
     @JvmStatic external fun extract(taskId: Long, archivePath: String, destDir: String): Int
-    @JvmStatic external fun extractWithPassword(taskId: Long, archivePath: String, destDir: String, password: String): Int
-    @JvmStatic external fun extractFiltered(taskId: Long, archivePath: String, destDir: String, names: Array<String>)
-    @JvmStatic external fun extractFilteredWithPassword(taskId: Long, archivePath: String, destDir: String, names: Array<String>, password: String)
+    @JvmStatic external fun extractWithPassword(taskId: Long, archivePath: String, destDir: String, password: ByteArray): Int
+    @JvmStatic external fun extractFiltered(taskId: Long, archivePath: String, destDir: String, names: Array<String>): Int
+    @JvmStatic external fun extractFilteredWithPassword(taskId: Long, archivePath: String, destDir: String, names: Array<String>, password: ByteArray): Int
     @JvmStatic external fun listArchive(archivePath: String): Array<String>
     @JvmStatic external fun listArchiveDetailed(archivePath: String): String
-    @JvmStatic external fun listArchiveDetailedWithPassword(archivePath: String, password: String): String
+    @JvmStatic external fun listArchiveDetailedWithPassword(archivePath: String, password: ByteArray): String
     @JvmStatic external fun testArchive(archivePath: String): String
-    @JvmStatic external fun testArchiveWithPassword(archivePath: String, password: String): String
+    @JvmStatic external fun testArchiveWithPassword(archivePath: String, password: ByteArray): String
     @JvmStatic external fun extractFd(taskId: Long, fd: Int, destDir: String): Int
-    @JvmStatic external fun extractWithPasswordFd(taskId: Long, fd: Int, destDir: String, password: String): Int
+    @JvmStatic external fun extractWithPasswordFd(taskId: Long, fd: Int, destDir: String, password: ByteArray): Int
     @JvmStatic external fun listArchiveDetailedFd(fd: Int): String
-    @JvmStatic external fun listArchiveDetailedWithPasswordFd(fd: Int, password: String): String
+    @JvmStatic external fun listArchiveDetailedWithPasswordFd(fd: Int, password: ByteArray): String
     @JvmStatic external fun testArchiveFd(fd: Int): String
-    @JvmStatic external fun testArchiveWithPasswordFd(fd: Int, password: String): String
-    @JvmStatic external fun searchArchiveContent(archivePath: String, needle: String, caseSensitive: Boolean, maxBytes: Long, password: String): String
-    @JvmStatic external fun searchArchiveContentFd(fd: Int, needle: String, caseSensitive: Boolean, maxBytes: Long, password: String): String
+    @JvmStatic external fun testArchiveWithPasswordFd(fd: Int, password: ByteArray): String
+    @JvmStatic external fun searchArchiveContent(archivePath: String, needle: String, caseSensitive: Boolean, maxBytes: Long, password: ByteArray): String
+    @JvmStatic external fun searchArchiveContentFd(fd: Int, needle: String, caseSensitive: Boolean, maxBytes: Long, password: ByteArray): String
     @JvmStatic external fun deleteArchiveEntries(archivePath: String, names: Array<String>)
-    @JvmStatic external fun deleteArchiveEntriesWithPassword(archivePath: String, names: Array<String>, password: String)
+    @JvmStatic external fun deleteArchiveEntriesWithPassword(archivePath: String, names: Array<String>, password: ByteArray)
     @JvmStatic external fun renameArchiveEntry(archivePath: String, from: String, to: String)
-    @JvmStatic external fun renameArchiveEntryWithPassword(archivePath: String, from: String, to: String, password: String)
+    @JvmStatic external fun renameArchiveEntryWithPassword(archivePath: String, from: String, to: String, password: ByteArray)
     @JvmStatic external fun addFilesToArchive(archivePath: String, srcPaths: Array<String>, destDir: String)
-    @JvmStatic external fun addFilesToArchiveWithPassword(archivePath: String, srcPaths: Array<String>, destDir: String, password: String)
-    @JvmStatic external fun setArchiveEntryMeta(archivePath: String, name: String, modifiedMillis: Long, mode: Int, password: String)
-    @JvmStatic external fun setArchiveEntryMetaFd(fd: Int, name: String, modifiedMillis: Long, mode: Int, password: String)
+    @JvmStatic external fun addFilesToArchiveWithPassword(archivePath: String, srcPaths: Array<String>, destDir: String, password: ByteArray)
+    @JvmStatic external fun setArchiveEntryMeta(archivePath: String, name: String, modifiedMillis: Long, mode: Int, password: ByteArray)
+    @JvmStatic external fun setArchiveEntryMetaFd(fd: Int, name: String, modifiedMillis: Long, mode: Int, password: ByteArray)
     @JvmStatic external fun getProgress(): LongArray
     @JvmStatic external fun getTaskProgress(taskId: Long): LongArray
     @JvmStatic external fun cancel()
     @JvmStatic external fun cancelTask(taskId: Long)
+}
+
+private inline fun <T> withWipedPassword(password: String, block: (ByteArray) -> T): T {
+    val bytes = password.toByteArray(Charsets.UTF_8)
+    try { return block(bytes) } finally { bytes.fill(0) }
 }

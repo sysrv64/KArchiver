@@ -14,7 +14,7 @@ use crate::io_util::{
     create_output_file, log_warn, progress_add, progress_reset, reject_symlink_ancestors,
     safe_join, safe_link_target, sanitize_entry_name, set_file_mode,
 };
-use ::zip::read::ZipFile;
+use ::zip::read::{HasZipMetadata, ZipFile};
 use ::zip::result::ZipError;
 use ::zip::write::{FileOptions, SimpleFileOptions};
 use ::zip::{AesMode, CompressionMethod, DateTime, ZipArchive, ZipReadOptions, ZipWriter};
@@ -258,9 +258,22 @@ fn open_single(archive: &Path) -> Result<ZipArchive<BufReader<File>>> {
     ZipArchive::new(BufReader::new(file)).map_err(ArchiveError::backend)
 }
 
+const SPLIT_MULTIDISK_MSG: &str = "PKZIP multi-disk split archives are not supported; the file may be a true multi-disk zip rather than a raw-split archive";
+
+fn map_split_open_err(e: ZipError) -> ArchiveError {
+    match e {
+        ZipError::InvalidArchive(_) => ArchiveError::Unsupported(SPLIT_MULTIDISK_MSG.to_string()),
+        other => ArchiveError::backend(other),
+    }
+}
+
 fn open_split(segments: &[PathBuf]) -> Result<ZipArchive<BufReader<ConcatReader>>> {
     let reader = ConcatReader::open(segments)?;
-    ZipArchive::new(BufReader::new(reader)).map_err(ArchiveError::backend)
+    let mut zip = ZipArchive::new(BufReader::new(reader)).map_err(map_split_open_err)?;
+    for i in 0..zip.len() {
+        zip.by_index_raw(i).map_err(map_split_open_err)?;
+    }
+    Ok(zip)
 }
 
 fn map_open_err(e: ZipError) -> ArchiveError {
@@ -987,6 +1000,10 @@ fn open_for_edit(archive: &Path, password: Option<&[u8]>) -> Result<ZipArchive<B
     Ok(zip)
 }
 
+fn needs_recompress<R: Read>(entry: &ZipFile<'_, R>) -> bool {
+    entry.encrypted() && entry.get_metadata().aes_mode.is_none()
+}
+
 fn write_file_entry<R: Read + Seek>(
     writer: &mut ZipWriter<BufWriter<File>>,
     name: &str,
@@ -1054,40 +1071,36 @@ pub fn delete_entries(archive: &Path, names: &[String], password: Option<&[u8]>)
     let mut writer = ZipWriter::new(BufWriter::new(out_file));
     for i in 0..total {
         check_cancelled()?;
-        let raw = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
-        let name = raw.name().to_string();
-        let is_dir = raw.is_dir();
-        let mode = raw.unix_mode();
-        let modified = raw.last_modified();
-        let compression = raw.compression();
-        let encrypted = raw.encrypted();
-        drop(raw);
-        let drop_entry = targets.iter().any(|t| entry_matches(&name, t));
+        let entry = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
+        let name = entry.name().to_string();
         progress_add(1);
-        if drop_entry {
-            if encrypted {
-                let mut e = open_entry(&mut zip, i, pw)?;
-                let mut sink = io::sink();
-                let _ = io::copy(&mut e, &mut sink);
-            }
+        if targets.iter().any(|t| entry_matches(&name, t)) {
             continue;
         }
-        if is_dir {
+        if entry.is_dir() {
             writer
                 .add_directory(trim_name(&name), dir_options())
                 .map_err(ArchiveError::backend)?;
             continue;
         }
-        let mut entry = open_entry(&mut zip, i, pw)?;
-        write_file_entry(
-            &mut writer,
-            &name,
-            &mut entry,
-            mode,
-            modified,
-            compression,
-            pw,
-        )?;
+        if needs_recompress(&entry) {
+            let mode = entry.unix_mode();
+            let modified = entry.last_modified();
+            let compression = entry.compression();
+            drop(entry);
+            let mut src = open_entry(&mut zip, i, pw)?;
+            write_file_entry(
+                &mut writer,
+                &name,
+                &mut src,
+                mode,
+                modified,
+                compression,
+                pw,
+            )?;
+        } else {
+            writer.raw_copy_file(entry).map_err(ArchiveError::backend)?;
+        }
     }
     let buffered = writer.finish().map_err(ArchiveError::backend)?;
     buffered
@@ -1159,13 +1172,8 @@ pub fn rename_entry(archive: &Path, from: &str, to: &str, password: Option<&[u8]
     let mut writer = ZipWriter::new(BufWriter::new(out_file));
     for i in 0..total {
         check_cancelled()?;
-        let raw = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
-        let name = raw.name().to_string();
-        let is_dir = raw.is_dir();
-        let mode = raw.unix_mode();
-        let modified = raw.last_modified();
-        let compression = raw.compression();
-        drop(raw);
+        let entry = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
+        let name = entry.name().to_string();
         progress_add(1);
         let new_name = if entry_matches(&name, &from_s) {
             let trimmed = trim_name(&name);
@@ -1174,22 +1182,32 @@ pub fn rename_entry(archive: &Path, from: &str, to: &str, password: Option<&[u8]
         } else {
             name.clone()
         };
-        if is_dir {
+        if entry.is_dir() {
             writer
                 .add_directory(trim_name(&new_name), dir_options())
                 .map_err(ArchiveError::backend)?;
             continue;
         }
-        let mut entry = open_entry(&mut zip, i, pw)?;
-        write_file_entry(
-            &mut writer,
-            &new_name,
-            &mut entry,
-            mode,
-            modified,
-            compression,
-            pw,
-        )?;
+        if needs_recompress(&entry) {
+            let mode = entry.unix_mode();
+            let modified = entry.last_modified();
+            let compression = entry.compression();
+            drop(entry);
+            let mut src = open_entry(&mut zip, i, pw)?;
+            write_file_entry(
+                &mut writer,
+                &new_name,
+                &mut src,
+                mode,
+                modified,
+                compression,
+                pw,
+            )?;
+        } else {
+            writer
+                .raw_copy_file_rename(entry, new_name)
+                .map_err(ArchiveError::backend)?;
+        }
     }
     let buffered = writer.finish().map_err(ArchiveError::backend)?;
     buffered
@@ -1243,33 +1261,36 @@ pub fn add_files(
     let mut writer = ZipWriter::new(BufWriter::new(out_file));
     for i in 0..total {
         check_cancelled()?;
-        let raw = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
-        let name = raw.name().to_string();
-        let is_dir = raw.is_dir();
-        let mode = raw.unix_mode();
-        let modified = raw.last_modified();
-        let compression = raw.compression();
-        drop(raw);
+        let entry = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
+        let name = entry.name().to_string();
         progress_add(1);
         if add_names.contains(&trim_name(&name)) {
             continue;
         }
-        if is_dir {
+        if entry.is_dir() {
             writer
                 .add_directory(trim_name(&name), dir_options())
                 .map_err(ArchiveError::backend)?;
             continue;
         }
-        let mut entry = open_entry(&mut zip, i, pw)?;
-        write_file_entry(
-            &mut writer,
-            &name,
-            &mut entry,
-            mode,
-            modified,
-            compression,
-            pw,
-        )?;
+        if needs_recompress(&entry) {
+            let mode = entry.unix_mode();
+            let modified = entry.last_modified();
+            let compression = entry.compression();
+            drop(entry);
+            let mut src = open_entry(&mut zip, i, pw)?;
+            write_file_entry(
+                &mut writer,
+                &name,
+                &mut src,
+                mode,
+                modified,
+                compression,
+                pw,
+            )?;
+        } else {
+            writer.raw_copy_file(entry).map_err(ArchiveError::backend)?;
+        }
     }
     let mut ordered_dirs: Vec<String> = need_dirs.into_iter().collect();
     ordered_dirs.sort();
@@ -1351,13 +1372,10 @@ pub fn set_entry_meta(
     let mut writer = ZipWriter::new(BufWriter::new(out_file));
     for i in 0..total {
         check_cancelled()?;
-        let raw = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
-        let entry_name = raw.name().to_string();
-        let is_dir = raw.is_dir();
-        let orig_mode = raw.unix_mode();
-        let orig_modified = raw.last_modified();
-        let compression = raw.compression();
-        drop(raw);
+        let entry = zip.by_index_raw(i).map_err(ArchiveError::backend)?;
+        let entry_name = entry.name().to_string();
+        let orig_mode = entry.unix_mode();
+        let orig_modified = entry.last_modified();
         let is_target = trim_name(&entry_name) == target;
         let entry_mode = if is_target {
             mode.or(orig_mode)
@@ -1370,7 +1388,7 @@ pub fn set_entry_meta(
             orig_modified
         };
         progress_add(1);
-        if is_dir {
+        if entry.is_dir() {
             let mut opts = SimpleFileOptions::default();
             if let Some(m) = entry_mode {
                 opts = opts.unix_permissions(m);
@@ -1383,16 +1401,30 @@ pub fn set_entry_meta(
                 .map_err(ArchiveError::backend)?;
             continue;
         }
-        let mut entry = open_entry(&mut zip, i, pw)?;
-        write_file_entry(
-            &mut writer,
-            &entry_name,
-            &mut entry,
-            entry_mode,
-            entry_modified,
-            compression,
-            pw,
-        )?;
+        if needs_recompress(&entry) {
+            let compression = entry.compression();
+            drop(entry);
+            let mut src = open_entry(&mut zip, i, pw)?;
+            write_file_entry(
+                &mut writer,
+                &entry_name,
+                &mut src,
+                entry_mode,
+                entry_modified,
+                compression,
+                pw,
+            )?;
+        } else if is_target {
+            writer
+                .raw_copy_file_touch(
+                    entry,
+                    entry_modified.unwrap_or_else(DateTime::default_for_write),
+                    entry_mode,
+                )
+                .map_err(ArchiveError::backend)?;
+        } else {
+            writer.raw_copy_file(entry).map_err(ArchiveError::backend)?;
+        }
     }
     let buffered = writer.finish().map_err(ArchiveError::backend)?;
     buffered
@@ -1436,6 +1468,21 @@ mod edit_tests {
         names_of(archive).iter().any(|n| n.ends_with(suffix))
     }
 
+    fn raw_entry_info(archive: &Path, name: &str) -> (CompressionMethod, Vec<u8>) {
+        let file = File::open(archive).unwrap();
+        let mut zip = ZipArchive::new(BufReader::new(file)).unwrap();
+        for i in 0..zip.len() {
+            let mut entry = zip.by_index_raw(i).unwrap();
+            if entry.name() == name {
+                let method = entry.compression();
+                let mut bytes = Vec::new();
+                entry.read_to_end(&mut bytes).unwrap();
+                return (method, bytes);
+            }
+        }
+        panic!("entry not found: {name}");
+    }
+
     #[test]
     fn delete_file() {
         let dir = tempdir().unwrap();
@@ -1453,6 +1500,97 @@ mod edit_tests {
         let names = names_of(&archive);
         assert!(names.iter().all(|n| !n.contains("mydir")));
         assert!(has_entry(&archive, "a.txt"));
+    }
+
+    #[test]
+    fn delete_keeps_compression_method() {
+        let dir = tempdir().unwrap();
+        let archive = make_zip(dir.path(), "t.zip");
+        let before = raw_entry_info(&archive, "src/mydir/b.txt").0;
+        crate::backend::delete_entries(&archive, Format::Zip, &["src/a.txt".to_string()]).unwrap();
+        let after = raw_entry_info(&archive, "src/mydir/b.txt").0;
+        assert_eq!(before, after);
+        assert_eq!(after, CompressionMethod::Deflated);
+    }
+
+    fn raw_encrypted(archive: &Path, name: &str) -> (bool, Option<AesMode>) {
+        let file = File::open(archive).unwrap();
+        let mut zip = ZipArchive::new(BufReader::new(file)).unwrap();
+        for i in 0..zip.len() {
+            let entry = zip.by_index_raw(i).unwrap();
+            if entry.name() == name {
+                let aes = entry.get_metadata().aes_mode.map(|(mode, _, _)| mode);
+                return (entry.encrypted(), aes);
+            }
+        }
+        panic!("entry not found: {name}");
+    }
+
+    #[test]
+    fn delete_preserves_encrypted_entry_bytes() {
+        let dir = tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), b"secret a").unwrap();
+        std::fs::write(src.join("b.txt"), b"secret b").unwrap();
+        let dest = dir.path().join("p.zip");
+        crate::backend::compress_with_password(
+            &[src],
+            &dest,
+            Format::Zip,
+            &Limits::default(),
+            "pw123",
+        )
+        .unwrap();
+        let before = raw_entry_info(&dest, "src/b.txt");
+        let (encrypted_before, aes_before) = raw_encrypted(&dest, "src/b.txt");
+        assert!(encrypted_before);
+        assert_eq!(aes_before, Some(AesMode::Aes256));
+        crate::backend::delete_entries_with_password(
+            &dest,
+            Format::Zip,
+            &["src/a.txt".to_string()],
+            b"pw123",
+        )
+        .unwrap();
+        let after = raw_entry_info(&dest, "src/b.txt");
+        let (encrypted_after, aes_after) = raw_encrypted(&dest, "src/b.txt");
+        assert!(encrypted_after);
+        assert_eq!(aes_after, Some(AesMode::Aes256));
+        assert_eq!(before.0, after.0);
+        assert_eq!(before.1, after.1);
+        let out = dir.path().join("out");
+        crate::backend::extract_with_password(
+            &dest,
+            &out,
+            Format::Zip,
+            &Limits::default(),
+            "pw123",
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(out.join("src/b.txt")).unwrap(), b"secret b");
+    }
+
+    #[test]
+    fn raw_split_archive_lists_and_rejects_edit() {
+        let dir = tempdir().unwrap();
+        let archive = make_zip(dir.path(), "t.zip");
+        let bytes = std::fs::read(&archive).unwrap();
+        let a = bytes.len() / 3;
+        let b = 2 * bytes.len() / 3;
+        std::fs::write(dir.path().join("arch.z01"), &bytes[..a]).unwrap();
+        std::fs::write(dir.path().join("arch.z02"), &bytes[a..b]).unwrap();
+        std::fs::write(dir.path().join("arch.zip"), &bytes[b..]).unwrap();
+        let split = dir.path().join("arch.zip");
+        let names = names_of(&split);
+        assert!(names.iter().any(|n| n.ends_with("a.txt")));
+        assert!(names.iter().any(|n| n.ends_with("c.txt")));
+        let out = dir.path().join("out");
+        crate::backend::extract_filtered(&split, Format::Zip, &["src/mydir".to_string()], &out)
+            .unwrap();
+        assert!(out.join("src/mydir/b.txt").is_file());
+        let r = crate::backend::delete_entries(&split, Format::Zip, &["src/a.txt".to_string()]);
+        assert!(matches!(r, Err(ArchiveError::Unsupported(_))));
     }
 
     #[test]

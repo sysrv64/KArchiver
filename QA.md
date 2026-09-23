@@ -22,7 +22,7 @@ Restricted paths a normal app cannot touch, for example `/Android/data` and syst
 Settings → Files → **RAR support**. It is read-only at first. To unlock creating RAR archives, press and hold the same row for 5 seconds until a haptic tick confirms; RAR packing is a deliberate speed bump because the library has not been well tested yet.
 
 **Which archives can be edited in place?**
-ZIP, TAR, TAR.GZ, TAR.BZ2, TAR.XZ, TAR.ZST and 7Z support adding, renaming and deleting entries. RAR and single-stream archives (`.gz`, `.bz2`, `.xz`, `.zst`, `.lz4`) are read-only.
+ZIP, TAR, TAR.GZ, TAR.BZ2, TAR.XZ, TAR.ZST, TAR.LZ4 and 7Z support adding, renaming and deleting entries. RAR and single-stream archives (`.gz`, `.bz2`, `.xz`, `.zst`, `.lz4`) are read-only.
 
 **Does extraction overwrite my files?**
 Not without asking. When names collide you choose Replace, Skip or Keep both; "Keep both" writes a new name such as `report (1).pdf`.
