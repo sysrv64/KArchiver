@@ -1,7 +1,9 @@
 package com.kerneldroid.karchiver.presentation.browser
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.FileSystemRepository
 import com.kerneldroid.karchiver.data.PreviewListing
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +25,7 @@ data class ExplorerUiState(
     val rows: List<ExplorerRow> = emptyList(),
     val selected: Set<String> = emptySet(),
     val isLoading: Boolean = false,
-    val error: String? = null,
+    @StringRes val error: Int? = null,
     val archiveName: String = ""
 )
 
@@ -95,7 +97,7 @@ class ArchiveExplorerViewModel(
                 true
             },
             onFailure = { e ->
-                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Could not update archive")
+                _state.value = _state.value.copy(isLoading = false, error = R.string.archive_update_failed)
                 false
             }
         )
@@ -104,11 +106,11 @@ class ArchiveExplorerViewModel(
     suspend fun renameEntry(from: String, newName: String): Boolean {
         val clean = newName.trim()
         if (clean.isEmpty() || clean.contains("/")) {
-            _state.value = _state.value.copy(error = "Invalid name")
+            _state.value = _state.value.copy(error = R.string.archive_invalid_name)
             return false
         }
         if (from.isEmpty()) {
-            _state.value = _state.value.copy(error = "Invalid name")
+            _state.value = _state.value.copy(error = R.string.archive_invalid_name)
             return false
         }
         val base = normalizeInside(_state.value.insidePath)
@@ -122,7 +124,7 @@ class ArchiveExplorerViewModel(
                 true
             },
             onFailure = { e ->
-                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Could not update archive")
+                _state.value = _state.value.copy(isLoading = false, error = R.string.archive_update_failed)
                 false
             }
         )
@@ -130,7 +132,7 @@ class ArchiveExplorerViewModel(
 
     suspend fun setEntryModified(path: String, millis: Long): Boolean {
         if (path.isEmpty() || millis <= 0L) {
-            _state.value = _state.value.copy(error = "Invalid date")
+            _state.value = _state.value.copy(error = R.string.archive_invalid_date)
             return false
         }
         _state.value = _state.value.copy(isLoading = true, error = null)
@@ -141,7 +143,7 @@ class ArchiveExplorerViewModel(
                 true
             },
             onFailure = { e ->
-                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Could not update archive")
+                _state.value = _state.value.copy(isLoading = false, error = R.string.archive_update_failed)
                 false
             }
         )
@@ -149,7 +151,7 @@ class ArchiveExplorerViewModel(
 
     suspend fun setEntryMode(path: String, mode: Int): Boolean {
         if (path.isEmpty() || mode < 0) {
-            _state.value = _state.value.copy(error = "Invalid permissions")
+            _state.value = _state.value.copy(error = R.string.archive_invalid_permissions)
             return false
         }
         _state.value = _state.value.copy(isLoading = true, error = null)
@@ -160,7 +162,7 @@ class ArchiveExplorerViewModel(
                 true
             },
             onFailure = { e ->
-                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Could not update archive")
+                _state.value = _state.value.copy(isLoading = false, error = R.string.archive_update_failed)
                 false
             }
         )
@@ -176,7 +178,7 @@ class ArchiveExplorerViewModel(
                 doLoad()
             },
             onFailure = { e ->
-                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Could not update archive")
+                _state.value = _state.value.copy(isLoading = false, error = R.string.archive_update_failed)
             }
         )
     }
@@ -192,7 +194,7 @@ class ArchiveExplorerViewModel(
                 true
             },
             onFailure = { e ->
-                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Could not extract entries")
+                _state.value = _state.value.copy(isLoading = false, error = R.string.archive_extract_entries_failed)
                 false
             }
         )
@@ -207,7 +209,7 @@ class ArchiveExplorerViewModel(
                 true
             },
             onFailure = { e ->
-                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Could not extract archive")
+                _state.value = _state.value.copy(isLoading = false, error = R.string.archive_extract_archive_failed)
                 false
             }
         )

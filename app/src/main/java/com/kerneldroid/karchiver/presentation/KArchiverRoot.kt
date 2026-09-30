@@ -75,6 +75,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
+import com.kerneldroid.karchiver.R
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -137,17 +139,17 @@ private val DrawerTabSpacing = 4.dp
 private enum class DrawerTab(
     val id: String,
     val route: String,
-    val title: String,
+    val titleRes: Int,
     val icon: ImageVector,
     val mandatory: Boolean = false
 ) {
-    FILES("files", RootRoute.BROWSER, "Files", Icons.Filled.Folder, mandatory = true),
-    HOME("home", RootRoute.HOME, "Home", Icons.Filled.Home),
-    RECENTS("recents", RootRoute.RECENTS, "Recents", Icons.Filled.Schedule),
-    HISTORY("history", RootRoute.HISTORY, "History", Icons.Filled.History),
-    TRASH("trash", RootRoute.TRASH, "Trash", Icons.Filled.Delete),
-    PROCESSES("processes", RootRoute.PROCESSES, "Processes", Icons.Filled.Memory),
-    SETTINGS("settings", RootRoute.SETTINGS, "Settings", Icons.Filled.Settings, mandatory = true);
+    FILES("files", RootRoute.BROWSER, R.string.library_drawer_files, Icons.Filled.Folder, mandatory = true),
+    HOME("home", RootRoute.HOME, R.string.library_drawer_home, Icons.Filled.Home),
+    RECENTS("recents", RootRoute.RECENTS, R.string.library_drawer_recents, Icons.Filled.Schedule),
+    HISTORY("history", RootRoute.HISTORY, R.string.library_drawer_history, Icons.Filled.History),
+    TRASH("trash", RootRoute.TRASH, R.string.library_drawer_trash, Icons.Filled.Delete),
+    PROCESSES("processes", RootRoute.PROCESSES, R.string.library_drawer_processes, Icons.Filled.Memory),
+    SETTINGS("settings", RootRoute.SETTINGS, R.string.library_drawer_settings, Icons.Filled.Settings, mandatory = true);
 
     companion object {
         fun fromId(id: String): DrawerTab? = entries.firstOrNull { it.id == id }
@@ -205,7 +207,7 @@ private fun DeviceDrawerRow(
         }
         if (usedBytes != null && totalBytes != null && totalBytes > 0) {
             Text(
-                text = "${formatBytes(usedBytes)} / ${formatBytes(totalBytes)}",
+                text = stringResource(R.string.library_drawer_usage, formatBytes(usedBytes), formatBytes(totalBytes)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -451,7 +453,7 @@ fun KArchiverRoot(
                             )
                         }
                     if (favoriteOrder.isNotEmpty()) {
-                        DrawerSectionLabel("Favorites")
+                        DrawerSectionLabel(stringResource(R.string.library_drawer_favorites))
                         val favDirs by produceState(initialValue = emptyMap<String, Boolean>(), favoriteOrder) {
                             value = withContext(Dispatchers.IO) {
                                 favoriteOrder.associateWith { File(it).isDirectory }
@@ -481,7 +483,7 @@ fun KArchiverRoot(
                     }
                     if (settings?.seeDevicesInUi == true && storageVolumes.isNotEmpty()) {
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 28.dp, vertical = 4.dp))
-                        DrawerSectionLabel("Devices")
+                        DrawerSectionLabel(stringResource(R.string.library_drawer_devices))
                         val stats by produceState(initialValue = emptyMap<String, VolumeStats>(), storageVolumes) {
                             value = withContext(Dispatchers.IO) { loadVolumeStats(context).associateBy { it.path } }
                         }
@@ -518,14 +520,15 @@ fun KArchiverRoot(
                                 ) {
                                     if (restorable.isEmpty()) {
                                         DropdownMenuItem(
-                                            text = { Text("All tabs are shown") },
+                                            text = { Text(stringResource(R.string.library_drawer_all_tabs_shown)) },
                                             enabled = false,
                                             onClick = {}
                                         )
                                     }
                                     restorable.forEach { tab ->
+                                        val addTitle = stringResource(tab.titleRes)
                                         DropdownMenuItem(
-                                            text = { Text("Add ${tab.title}") },
+                                            text = { Text(stringResource(R.string.library_drawer_add_tab, addTitle)) },
                                             trailingIcon = { Icon(tab.icon, null, Modifier.size(20.dp)) },
                                             onClick = {
                                                 emptyMenu = false
@@ -755,7 +758,7 @@ fun KArchiverRoot(
                             strokeWidth = 2.dp
                         )
                         Text(
-                            text = op.title + " • " + (fraction * 100).toInt() + "%",
+                            text = stringResource(R.string.library_progress_status, op.title, (fraction * 100).toInt()),
                             style = MaterialTheme.typography.labelLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -794,12 +797,13 @@ private fun DrawerTabRow(
     onRemove: () -> Unit
 ) {
     Box(Modifier.fillMaxWidth()) {
+        val tabTitle = stringResource(tab.titleRes)
         CustomNavigationDrawerItem(
             selected = selected,
             onSelected = onSelected,
             onLongClick = onLongClick,
             icon = tab.icon,
-            text = tab.title
+            text = tabTitle
         )
         DropdownMenuPopup(
             expanded = menuExpanded,
@@ -810,7 +814,10 @@ private fun DrawerTabRow(
             ) {
                 DropdownMenuItem(
                     text = {
-                        Text(if (tab.mandatory) "${tab.title} can't be removed" else "Remove ${tab.title}")
+                        Text(
+                            if (tab.mandatory) stringResource(R.string.library_drawer_cannot_remove, tabTitle)
+                            else stringResource(R.string.library_drawer_remove_tab, tabTitle)
+                        )
                     },
                     trailingIcon = { Icon(Icons.Filled.Delete, null, Modifier.size(20.dp)) },
                     enabled = !tab.mandatory,

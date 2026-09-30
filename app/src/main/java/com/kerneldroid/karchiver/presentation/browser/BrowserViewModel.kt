@@ -5,12 +5,14 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.os.SystemClock
+import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.FileItem
 import com.kerneldroid.karchiver.data.FileSystemRepository
 import com.kerneldroid.karchiver.data.CompressFormat
@@ -19,7 +21,6 @@ import com.kerneldroid.karchiver.data.conflictsAmong
 import com.kerneldroid.karchiver.data.topLevelNames
 import com.kerneldroid.karchiver.data.uniqueName
 import com.kerneldroid.karchiver.data.FormatRegistry
-import com.kerneldroid.karchiver.data.RAR_DISABLED_MESSAGE
 import com.kerneldroid.karchiver.data.RarAccessException
 import com.kerneldroid.karchiver.data.RarDisabledException
 import com.kerneldroid.karchiver.data.RarWriteLockedException
@@ -77,7 +78,7 @@ data class ArchivePreviewUiState(
     val file: File? = null,
     val isLoading: Boolean = false,
     val listing: PreviewListing? = null,
-    val error: String? = null,
+    @StringRes val error: Int? = null,
     val passwordUsed: String = ""
 )
 
@@ -85,7 +86,7 @@ data class VerifyUiState(
     val file: File? = null,
     val isLoading: Boolean = false,
     val report: TestReport? = null,
-    val error: String? = null,
+    @StringRes val error: Int? = null,
     val passwordUsed: String = ""
 )
 
@@ -199,7 +200,7 @@ class BrowserViewModel(
 
     fun openPreview(file: File, password: String = "") {
         if (isRarArchive(file) && !_state.value.rarEnabled) {
-            _preview.value = ArchivePreviewUiState(file = file, error = RAR_DISABLED_MESSAGE)
+            _preview.value = ArchivePreviewUiState(file = file, error = R.string.browser_rar_disabled)
             return
         }
         recordInteraction(file)
@@ -226,7 +227,7 @@ class BrowserViewModel(
 
     fun verifyArchive(file: File, password: String = "") {
         if (isRarArchive(file) && !_state.value.rarEnabled) {
-            _verify.value = VerifyUiState(file = file, error = RAR_DISABLED_MESSAGE)
+            _verify.value = VerifyUiState(file = file, error = R.string.browser_rar_disabled)
             return
         }
         recordInteraction(file)
@@ -260,26 +261,32 @@ class BrowserViewModel(
         _verifyActive.value = false
     }
 
-    private fun verifyMessage(e: Throwable): String {
-        if (e is RarAccessException) return e.message ?: RAR_DISABLED_MESSAGE
+    @StringRes
+    private fun verifyMessage(e: Throwable): Int {
+        if (e is RarDisabledException) return R.string.browser_rar_disabled
+        if (e is RarWriteLockedException) return R.string.browser_rar_packing_locked
+        if (e is RarAccessException) return R.string.browser_rar_disabled
         val msg = e.message ?: ""
         return when {
-            msg.contains("wrong password", ignoreCase = true) -> "Wrong password"
-            msg.contains("password required", ignoreCase = true) -> "Password required"
-            msg.contains("cancel", ignoreCase = true) -> "Cancelled"
-            else -> "Verification failed"
+            msg.contains("wrong password", ignoreCase = true) -> R.string.browser_wrong_password
+            msg.contains("password required", ignoreCase = true) -> R.string.browser_password_required
+            msg.contains("cancel", ignoreCase = true) -> R.string.browser_cancelled
+            else -> R.string.browser_verification_failed
         }
     }
 
-    fun archiveOpMessage(e: Throwable?, successText: String, failureText: String): String {
-        if (e is RarAccessException) return e.message ?: failureText
+    @StringRes
+    fun archiveOpMessage(e: Throwable?, @StringRes successText: Int, @StringRes failureText: Int): Int {
+        if (e is RarDisabledException) return R.string.browser_rar_disabled
+        if (e is RarWriteLockedException) return R.string.browser_rar_packing_locked
+        if (e is RarAccessException) return failureText
         val msg = e?.message ?: ""
         return when {
             e == null -> successText
-            msg.contains("wrong password", ignoreCase = true) -> "Wrong password"
-            msg.contains("password required", ignoreCase = true) -> "Password required"
-            msg.contains("another operation", ignoreCase = true) -> "Another operation is in progress"
-            msg.contains("cancel", ignoreCase = true) -> "Cancelled"
+            msg.contains("wrong password", ignoreCase = true) -> R.string.browser_wrong_password
+            msg.contains("password required", ignoreCase = true) -> R.string.browser_password_required
+            msg.contains("another operation", ignoreCase = true) -> R.string.browser_another_operation
+            msg.contains("cancel", ignoreCase = true) -> R.string.browser_cancelled
             else -> failureText
         }
     }
@@ -952,7 +959,7 @@ class BrowserViewModel(
                 if (report.isComplete) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(Exception("Could not move to Trash: " + report.failed.joinToString(", ")))
+                    Result.failure(Exception(appCtx?.getString(R.string.browser_could_not_move_to_trash_list, report.failed.joinToString(", "))))
                 }
             } else {
                 repo.delete(files, elevationEngine())
@@ -1144,14 +1151,15 @@ class BrowserViewModel(
     }
 }
 
-internal fun previewArchiveError(e: Throwable): String {
-    if (e is RarAccessException) return e.message ?: RAR_DISABLED_MESSAGE
+@StringRes
+internal fun previewArchiveError(e: Throwable): Int {
+    if (e is RarAccessException) return R.string.browser_rar_disabled
     val msg = e.message ?: ""
     return when {
-        msg.contains("wrong password", ignoreCase = true) -> "Wrong password"
-        msg.contains("password required", ignoreCase = true) -> "Password required"
-        msg.contains("cancel", ignoreCase = true) -> "Cancelled"
-        msg.contains("unsupported", ignoreCase = true) -> "Preview not supported for this format"
-        else -> "Could not read archive"
+        msg.contains("wrong password", ignoreCase = true) -> R.string.browser_wrong_password
+        msg.contains("password required", ignoreCase = true) -> R.string.browser_password_required
+        msg.contains("cancel", ignoreCase = true) -> R.string.browser_cancelled
+        msg.contains("unsupported", ignoreCase = true) -> R.string.browser_preview_unsupported
+        else -> R.string.browser_could_not_read_archive
     }
 }

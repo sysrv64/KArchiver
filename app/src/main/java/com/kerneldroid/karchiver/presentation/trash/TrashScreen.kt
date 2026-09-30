@@ -47,11 +47,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.formatBytes
 import com.kerneldroid.karchiver.data.history.relativeTime
 import com.kerneldroid.karchiver.data.trash.TrashEntry
@@ -67,6 +70,7 @@ fun TrashScreen(
     onToggleBar: () -> Unit = {}
 ) {
     BackHandler { onBack() }
+    val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -85,15 +89,15 @@ fun TrashScreen(
         vm.restore(entry, elevationMode) { result ->
             result.fold(
                 onSuccess = { name ->
+                    val message = if (name == entry.name) context.resources.getString(R.string.library_trash_restored, entry.name)
+                    else context.resources.getString(R.string.library_trash_restored_as, name)
                     scope.launch {
-                        snackbar.showSnackbar(
-                            if (name == entry.name) "Restored \"${entry.name}\""
-                            else "Restored as \"$name\""
-                        )
+                        snackbar.showSnackbar(message)
                     }
                 },
                 onFailure = { e ->
-                    scope.launch { snackbar.showSnackbar(e.message ?: "Could not restore") }
+                    val message = e.message ?: context.resources.getString(R.string.library_trash_restore_failed)
+                    scope.launch { snackbar.showSnackbar(message) }
                 }
             )
         }
@@ -101,13 +105,12 @@ fun TrashScreen(
 
     fun deleteForever(entry: TrashEntry) {
         vm.deleteForever(entry, elevationMode) { result ->
+            val message = result.fold(
+                onSuccess = { context.resources.getString(R.string.library_trash_deleted) },
+                onFailure = { e -> e.message ?: context.resources.getString(R.string.library_trash_delete_failed) }
+            )
             scope.launch {
-                snackbar.showSnackbar(
-                    result.fold(
-                        onSuccess = { "Deleted permanently" },
-                        onFailure = { e -> e.message ?: "Could not delete" }
-                    )
-                )
+                snackbar.showSnackbar(message)
             }
         }
     }
@@ -125,10 +128,10 @@ fun TrashScreen(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = Color.Transparent
                 ),
-                title = { Text("Trash") },
+                title = { Text(stringResource(R.string.library_trash_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.library_desc_back))
                     }
                 },
                 actions = {
@@ -136,7 +139,7 @@ fun TrashScreen(
                         onClick = { confirmEmpty = true },
                         enabled = entries.isNotEmpty() && !busy
                     ) {
-                        Icon(Icons.Filled.DeleteSweep, "Empty Trash")
+                        Icon(Icons.Filled.DeleteSweep, stringResource(R.string.library_desc_empty_trash))
                     }
                 }
             )
@@ -146,11 +149,12 @@ fun TrashScreen(
             if (entries.isEmpty()) {
                 TrashEmptyState()
             } else {
+                val summaryText = buildString {
+                    append(context.resources.getQuantityString(R.plurals.library_trash_count, entries.size, entries.size))
+                    if (totalSize > 0) append(" • ").append(formatBytes(totalSize))
+                }
                 Text(
-                    text = buildString {
-                        append(if (entries.size == 1) "1 item" else "${entries.size} items")
-                        if (totalSize > 0) append(" • ${formatBytes(totalSize)}")
-                    },
+                    text = summaryText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 4.dp)
@@ -178,27 +182,24 @@ fun TrashScreen(
     }
 
     if (confirmEmpty) {
+        val emptyText = context.resources.getQuantityString(R.plurals.library_trash_empty_text, entries.size, entries.size)
         AlertDialog(
             onDismissRequest = { confirmEmpty = false },
-            title = { Text("Empty Trash?") },
+            title = { Text(stringResource(R.string.library_trash_empty_title)) },
             text = {
-                Text(
-                    if (entries.size == 1) "Permanently delete 1 item? This cannot be undone."
-                    else "Permanently delete all ${entries.size} items? This cannot be undone."
-                )
+                Text(emptyText)
             },
             confirmButton = {
                 Button(
                     onClick = {
                         confirmEmpty = false
                         vm.empty(elevationMode) { result ->
+                            val message = result.fold(
+                                onSuccess = { context.resources.getString(R.string.library_trash_emptied) },
+                                onFailure = { e -> e.message ?: context.resources.getString(R.string.library_trash_empty_failed) }
+                            )
                             scope.launch {
-                                snackbar.showSnackbar(
-                                    result.fold(
-                                        onSuccess = { "Trash emptied" },
-                                        onFailure = { e -> e.message ?: "Could not empty Trash" }
-                                    )
-                                )
+                                snackbar.showSnackbar(message)
                             }
                         }
                     },
@@ -207,11 +208,11 @@ fun TrashScreen(
                         contentColor = MaterialTheme.colorScheme.onError
                     )
                 ) {
-                    Text("Delete all")
+                    Text(stringResource(R.string.library_trash_empty_confirm_all))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmEmpty = false }) { Text("Cancel") }
+                TextButton(onClick = { confirmEmpty = false }) { Text(stringResource(R.string.library_action_cancel)) }
             }
         )
     }
@@ -219,8 +220,8 @@ fun TrashScreen(
     pendingDelete?.let { entry ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete permanently?") },
-            text = { Text("\"${entry.name}\" will be deleted forever. This cannot be undone.") },
+            title = { Text(stringResource(R.string.library_trash_delete_title)) },
+            text = { Text(stringResource(R.string.library_trash_delete_text, entry.name)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -232,11 +233,11 @@ fun TrashScreen(
                         contentColor = MaterialTheme.colorScheme.onError
                     )
                 ) {
-                    Text("Delete")
+                    Text(stringResource(R.string.library_trash_delete_confirm))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.library_action_cancel)) }
             }
         )
     }
@@ -253,6 +254,9 @@ private fun TrashItemRow(
     onRestore: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
+    val timeLabel = relativeTime(context, entry.deletedAt, now)
+    val missingLabel = stringResource(R.string.library_trash_missing)
     SegmentedListItem(
         onClick = {},
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
@@ -276,12 +280,12 @@ private fun TrashItemRow(
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onRestore, enabled = enabled && !missing) {
-                    Icon(Icons.Filled.Restore, "Restore")
+                    Icon(Icons.Filled.Restore, stringResource(R.string.library_desc_restore))
                 }
                 IconButton(onClick = onDelete, enabled = enabled) {
                     Icon(
                         Icons.Filled.Delete,
-                        "Delete permanently",
+                        stringResource(R.string.library_desc_delete_forever),
                         tint = MaterialTheme.colorScheme.error
                     )
                 }
@@ -292,9 +296,9 @@ private fun TrashItemRow(
             Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 text = buildString {
-                    if (missing) append("Missing • ")
+                    if (missing) append(missingLabel).append(" • ")
                     if (!entry.isDirectory) append(formatBytes(entry.size)).append(" • ")
-                    append(relativeTime(entry.deletedAt, now))
+                    append(timeLabel)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = if (missing) MaterialTheme.colorScheme.error
@@ -316,12 +320,12 @@ private fun TrashEmptyState() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Trash is empty",
+            text = stringResource(R.string.library_trash_empty_state_title),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = "Files you delete will appear here",
+            text = stringResource(R.string.library_trash_empty_state_sub),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp)

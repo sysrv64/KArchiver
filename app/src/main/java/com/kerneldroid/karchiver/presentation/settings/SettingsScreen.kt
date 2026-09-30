@@ -4,6 +4,7 @@ import android.app.Activity
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
+import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material3.AlertDialog
@@ -86,6 +88,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -94,7 +97,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kerneldroid.karchiver.BuildConfig
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.AppSettings
+import com.kerneldroid.karchiver.data.AppLanguage
+import com.kerneldroid.karchiver.data.LocaleStore
+import com.kerneldroid.karchiver.data.findActivity
 import com.kerneldroid.karchiver.data.log.LogReport
 import com.kerneldroid.karchiver.data.SettingsRepository
 import com.kerneldroid.karchiver.data.SortBy
@@ -111,29 +118,29 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private data class SeedColor(val color: Color, val name: String)
+private data class SeedColor(val color: Color, @StringRes val name: Int)
 
 private val seedColors = listOf(
-    SeedColor(Color(0xFFFFA79B), "Red"),
-    SeedColor(Color(0xFFFFB2BD), "Rose"),
-    SeedColor(Color(0xFFD7BBFC), "Purple"),
-    SeedColor(Color(0xFFC5C0FF), "Indigo"),
-    SeedColor(Color(0xFFB0C6FF), "Blue"),
-    SeedColor(Color(0xFF86D1EA), "Cyan"),
-    SeedColor(Color(0xFF82D5C7), "Teal"),
-    SeedColor(Color(0xFF9CD59F), "Green"),
-    SeedColor(Color(0xFFC3CD7C), "Chartreuse"),
-    SeedColor(Color(0xFFE8C16C), "Yellow"),
-    SeedColor(Color(0xFFFFB68D), "Orange")
+    SeedColor(Color(0xFFFFA79B), R.string.settings_seed_red),
+    SeedColor(Color(0xFFFFB2BD), R.string.settings_seed_rose),
+    SeedColor(Color(0xFFD7BBFC), R.string.settings_seed_purple),
+    SeedColor(Color(0xFFC5C0FF), R.string.settings_seed_indigo),
+    SeedColor(Color(0xFFB0C6FF), R.string.settings_seed_blue),
+    SeedColor(Color(0xFF86D1EA), R.string.settings_seed_cyan),
+    SeedColor(Color(0xFF82D5C7), R.string.settings_seed_teal),
+    SeedColor(Color(0xFF9CD59F), R.string.settings_seed_green),
+    SeedColor(Color(0xFFC3CD7C), R.string.settings_seed_chartreuse),
+    SeedColor(Color(0xFFE8C16C), R.string.settings_seed_yellow),
+    SeedColor(Color(0xFFFFB68D), R.string.settings_seed_orange)
 )
 
-private data class ThemeOption(val mode: ThemeMode, val label: String, val icon: ImageVector)
+private data class ThemeOption(val mode: ThemeMode, @StringRes val label: Int, val icon: ImageVector)
 
 private val themeOptions = listOf(
-    ThemeOption(ThemeMode.SYSTEM, "System", Icons.Filled.BrightnessAuto),
-    ThemeOption(ThemeMode.LIGHT, "Light", Icons.Filled.LightMode),
-    ThemeOption(ThemeMode.DARK, "Dark", Icons.Filled.DarkMode),
-    ThemeOption(ThemeMode.OLED, "OLED", Icons.Filled.Contrast)
+    ThemeOption(ThemeMode.SYSTEM, R.string.settings_theme_system, Icons.Filled.BrightnessAuto),
+    ThemeOption(ThemeMode.LIGHT, R.string.settings_theme_light, Icons.Filled.LightMode),
+    ThemeOption(ThemeMode.DARK, R.string.settings_theme_dark, Icons.Filled.DarkMode),
+    ThemeOption(ThemeMode.OLED, R.string.settings_theme_oled, Icons.Filled.Contrast)
 )
 
 private val supportsDynamic = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -142,16 +149,16 @@ private val scanSizes = listOf(1, 5, 20, 100)
 
 enum class SettingsCategory(
     val route: String,
-    val title: String,
-    val subtitle: String,
+    @StringRes val title: Int,
+    @StringRes val subtitle: Int,
     val icon: ImageVector
 ) {
-    APPEARANCE("settings/appearance", "Appearance", "Theme, dynamic color, palettes", Icons.Filled.Palette),
-    FILES("settings/files", "Files", "Sorting, hidden files, RAR, history", Icons.Filled.SortByAlpha),
-    SEARCH("settings/search", "Search", "Content search, archives, scan limit", Icons.Filled.Search),
-    STORAGE("settings/storage", "Storage", "Access mode, granted folders", Icons.Filled.Storage),
-    ELEVATION("settings/elevation", "Elevation", "Shizuku or root access", Icons.Filled.Security),
-    ABOUT("settings/about", "About", "Version, license, links", Icons.Filled.Info)
+    APPEARANCE("settings/appearance", R.string.settings_category_appearance, R.string.settings_category_appearance_subtitle, Icons.Filled.Palette),
+    FILES("settings/files", R.string.settings_category_files, R.string.settings_category_files_subtitle, Icons.Filled.SortByAlpha),
+    SEARCH("settings/search", R.string.settings_category_search, R.string.settings_category_search_subtitle, Icons.Filled.Search),
+    STORAGE("settings/storage", R.string.settings_category_storage, R.string.settings_category_storage_subtitle, Icons.Filled.Storage),
+    ELEVATION("settings/elevation", R.string.settings_category_elevation, R.string.settings_category_elevation_subtitle, Icons.Filled.Security),
+    ABOUT("settings/about", R.string.settings_category_about, R.string.settings_category_about_subtitle, Icons.Filled.Info)
 }
 
 @Composable
@@ -189,7 +196,7 @@ private fun SettingsScaffold(
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.settings_back))
                     }
                 }
             )
@@ -217,7 +224,7 @@ fun SettingsScreen(
     barLifted: Boolean = false,
     onToggleBar: () -> Unit = {}
 ) {
-    SettingsScaffold("Settings", onBack, barLifted, onToggleBar) {
+    SettingsScaffold(stringResource(R.string.settings_title), onBack, barLifted, onToggleBar) {
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SettingsCategory.entries.forEachIndexed { index, category ->
                 val (container, onContainer) = categoryAccent(category)
@@ -240,14 +247,14 @@ fun SettingsScreen(
                     },
                     supportingContent = {
                         Text(
-                            text = category.subtitle,
+                            text = stringResource(category.subtitle),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
                     trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
                 ) {
-                    Text(category.title, style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(category.title), style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -265,11 +272,14 @@ fun SettingsAppearanceScreen(
 ) {
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    SettingsScaffold("Appearance", onBack, barLifted, onToggleBar) {
+    val context = LocalContext.current
+    var language by remember { mutableStateOf(LocaleStore.selected(context)) }
+    var showLanguage by remember { mutableStateOf(false) }
+    SettingsScaffold(stringResource(R.string.settings_category_appearance), onBack, barLifted, onToggleBar) {
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SegmentedListItem(
                 onClick = {},
-                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 3),
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 4),
                 colors = ListItemDefaults.segmentedColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
@@ -300,13 +310,13 @@ fun SettingsAppearanceScreen(
                                     .weight(1f)
                                     .semantics { role = Role.RadioButton }
                             ) {
-                                Icon(option.icon, option.label)
+                                Icon(option.icon, stringResource(option.label))
                             }
                         }
                     }
                 }
             ) {
-                Text("Theme")
+                Text(stringResource(R.string.settings_theme))
             }
             SegmentedListItem(
                 onClick = {
@@ -320,15 +330,15 @@ fun SettingsAppearanceScreen(
                         }
                     }
                 },
-                shapes = ListItemDefaults.segmentedShapes(index = 1, count = 3),
+                shapes = ListItemDefaults.segmentedShapes(index = 1, count = 4),
                 colors = ListItemDefaults.segmentedColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 leadingContent = { Icon(Icons.Filled.Palette, null) },
                 supportingContent = {
                     Text(
-                        if (supportsDynamic) "Follow the wallpaper colors"
-                        else "Requires Android 12 or newer"
+                        if (supportsDynamic) stringResource(R.string.settings_dynamic_color_subtitle)
+                        else stringResource(R.string.settings_dynamic_color_requires)
                     )
                 },
                 trailingContent = {
@@ -347,11 +357,11 @@ fun SettingsAppearanceScreen(
                     )
                 },
             ) {
-                Text("Dynamic color")
+                Text(stringResource(R.string.settings_dynamic_color))
             }
             SegmentedListItem(
                 onClick = {},
-                shapes = ListItemDefaults.segmentedShapes(index = 2, count = 3),
+                shapes = ListItemDefaults.segmentedShapes(index = 2, count = 4),
                 colors = ListItemDefaults.segmentedColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
@@ -361,9 +371,9 @@ fun SettingsAppearanceScreen(
                         modifier = Modifier.padding(bottom = 4.dp)
                     ) {
                         Text(
-                            if (settings.dynamicColor || settings.seedColor == null) "Dynamic"
-                            else seedColors.firstOrNull { it.color.value.toLong() == settings.seedColor }?.name
-                                ?: "Custom"
+                            if (settings.dynamicColor || settings.seedColor == null) stringResource(R.string.settings_palette_dynamic)
+                            else seedColors.firstOrNull { it.color.value.toLong() == settings.seedColor }?.let { stringResource(it.name) }
+                                ?: stringResource(R.string.settings_palette_custom)
                         )
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             itemsIndexed(seedColors) { index, seed ->
@@ -382,7 +392,7 @@ fun SettingsAppearanceScreen(
                                         seedColors.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                                         else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                                     },
-                                    colors = ToggleButtonDefaults.toggleButtonColors(
+                                    colors = ToggleButtonDefaults.colors(
                                         containerColor = seed.color,
                                         contentColor = onSeedColor,
                                         checkedContainerColor = seed.color,
@@ -401,7 +411,7 @@ fun SettingsAppearanceScreen(
                                                     null,
                                                     modifier = Modifier.size(20.dp)
                                                 )
-                                                Text(seed.name, style = MaterialTheme.typography.labelLarge)
+                                                Text(stringResource(seed.name), style = MaterialTheme.typography.labelLarge)
                                             }
                                         }
                                     }
@@ -411,10 +421,78 @@ fun SettingsAppearanceScreen(
                     }
                 }
             ) {
-                Text("Custom color")
+                Text(stringResource(R.string.settings_custom_color))
+            }
+            SegmentedListItem(
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                    showLanguage = true
+                },
+                shapes = ListItemDefaults.segmentedShapes(index = 3, count = 4),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = { Icon(Icons.Filled.Translate, null) },
+                supportingContent = { Text(stringResource(R.string.settings_language_subtitle)) },
+                trailingContent = {
+                    Text(
+                        languageLabel(language),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+            ) {
+                Text(stringResource(R.string.settings_language))
             }
         }
     }
+
+    if (showLanguage) {
+        AlertDialog(
+            onDismissRequest = { showLanguage = false },
+            title = { Text(stringResource(R.string.settings_language)) },
+            text = {
+                Column {
+                    AppLanguage.entries.forEach { option ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (option != language) {
+                                        language = option
+                                        haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                        context.findActivity()?.let { LocaleStore.applyLanguage(it, option) }
+                                    }
+                                    showLanguage = false
+                                }
+                                .padding(vertical = 12.dp)
+                        ) {
+                            RadioButton(selected = language == option, onClick = null)
+                            Text(
+                                languageLabel(option),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(start = 12.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLanguage = false }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun languageLabel(language: AppLanguage): String = when (language) {
+    AppLanguage.SYSTEM -> stringResource(R.string.language_system)
+    AppLanguage.ENGLISH -> stringResource(R.string.language_en)
+    AppLanguage.RUSSIAN -> stringResource(R.string.language_ru)
+    AppLanguage.CHINESE -> stringResource(R.string.language_zh)
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -439,8 +517,8 @@ fun SettingsFilesScreen(
             }
         }
     }
-    SettingsScaffold("Files", onBack, barLifted, onToggleBar) {
-        SectionHeader("Sorting and view")
+    SettingsScaffold(stringResource(R.string.settings_category_files), onBack, barLifted, onToggleBar) {
+        SectionHeader(stringResource(R.string.settings_section_sorting_view))
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SegmentedListItem(
                 onClick = {},
@@ -477,13 +555,13 @@ fun SettingsFilesScreen(
                     }
                 }
             ) {
-                Text("Default sort")
+                Text(stringResource(R.string.settings_default_sort))
             }
             SettingSwitch(
                 index = 1,
                 count = 4,
-                title = "Folders first",
-                subtitle = "Always list folders above files, no matter the sort order.",
+                title = stringResource(R.string.settings_folders_first),
+                subtitle = stringResource(R.string.settings_folders_first_subtitle),
                 checked = settings.foldersFirst,
                 onCheckedChange = { scope.launch { repo.setFoldersFirst(it) } }
             )
@@ -517,7 +595,7 @@ fun SettingsFilesScreen(
                                 .weight(1f)
                                 .semantics { role = Role.RadioButton }
                         ) {
-                            Text("List", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(stringResource(R.string.settings_view_list), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         ToggleButton(
                             checked = !listSelected,
@@ -530,70 +608,70 @@ fun SettingsFilesScreen(
                                 .weight(1f)
                                 .semantics { role = Role.RadioButton }
                         ) {
-                            Text("Grid", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(stringResource(R.string.settings_view_grid), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
             ) {
-                Text("Default view")
+                Text(stringResource(R.string.settings_default_view))
             }
             SettingSwitch(
                 index = 3,
                 count = 4,
-                title = "Equal grid cells",
-                subtitle = "Give every grid cell the same size regardless of the name. Long names are clipped and scroll every few seconds.",
+                title = stringResource(R.string.settings_equal_grid_cells),
+                subtitle = stringResource(R.string.settings_equal_grid_cells_subtitle),
                 checked = settings.equalShapes,
                 onCheckedChange = { scope.launch { repo.setEqualShapes(it) } }
             )
         }
-        SectionHeader("Behaviour")
+        SectionHeader(stringResource(R.string.settings_section_behaviour))
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SettingSwitch(
                 index = 0,
                 count = 7,
-                title = "Open last folder",
-                subtitle = "Return to the folder you were in when the app starts.",
+                title = stringResource(R.string.settings_open_last_folder),
+                subtitle = stringResource(R.string.settings_open_last_folder_subtitle),
                 checked = settings.openLastFolder,
                 onCheckedChange = { scope.launch { repo.setOpenLastFolder(it) } }
             )
             SettingSwitch(
                 index = 1,
                 count = 7,
-                title = "Auto-refresh folder",
-                subtitle = "Watch the open folder and load new or changed files automatically, without pull-to-refresh. Works in folders the app can read directly. Off by default.",
+                title = stringResource(R.string.settings_auto_refresh),
+                subtitle = stringResource(R.string.settings_auto_refresh_subtitle),
                 checked = settings.autoRefresh,
                 onCheckedChange = { scope.launch { repo.setAutoRefresh(it) } }
             )
             SettingSwitch(
                 index = 2,
                 count = 7,
-                title = "Hide hidden files",
-                subtitle = "Do not show files and folders whose name starts with a dot.",
+                title = stringResource(R.string.settings_hide_hidden),
+                subtitle = stringResource(R.string.settings_hide_hidden_subtitle),
                 checked = settings.hideHidden,
                 onCheckedChange = { scope.launch { repo.setHideHidden(it) } }
             )
             SettingSwitch(
                 index = 3,
                 count = 7,
-                title = "Confirm before delete",
-                subtitle = "Ask for confirmation before deleting files and folders.",
+                title = stringResource(R.string.settings_confirm_delete),
+                subtitle = stringResource(R.string.settings_confirm_delete_subtitle),
                 checked = settings.confirmDelete,
                 onCheckedChange = { scope.launch { repo.setConfirmDelete(it) } }
             )
             SettingSwitch(
                 index = 4,
                 count = 7,
-                title = "See devices in UI",
-                subtitle = "Show connected drives with used space in the navigation bar.",
+                title = stringResource(R.string.settings_see_devices),
+                subtitle = stringResource(R.string.settings_see_devices_subtitle),
                 checked = settings.seeDevicesInUi,
                 onCheckedChange = { scope.launch { repo.setSeeDevicesInUi(it) } }
             )
             SettingSwitch(
                 index = 5,
                 count = 7,
-                title = "RAR support",
-                subtitle = if (settings.rarWriteEnabled) "Read and write. Packing unlocked."
-                    else "Read-only. Hold this row 5 seconds to unlock RAR packing.",
+                title = stringResource(R.string.settings_rar_support),
+                subtitle = if (settings.rarWriteEnabled) stringResource(R.string.settings_rar_subtitle_rw)
+                    else stringResource(R.string.settings_rar_subtitle_ro),
                 checked = settings.rarEnabled,
                 onCheckedChange = {
                     if (SystemClock.uptimeMillis() - rarUnlockAt < 1000L) return@SettingSwitch
@@ -615,8 +693,8 @@ fun SettingsFilesScreen(
             SettingSwitch(
                 index = 6,
                 count = 7,
-                title = "Quote copied paths",
-                subtitle = "Wrap copied paths in single quotes, like '/sdcard/file.txt', for shell scripts and Termux.",
+                title = stringResource(R.string.settings_quote_paths),
+                subtitle = stringResource(R.string.settings_quote_paths_subtitle),
                 checked = settings.copyPathQuotes,
                 onCheckedChange = { scope.launch { repo.setCopyPathQuotes(it) } }
             )
@@ -635,29 +713,29 @@ fun SettingsSearchScreen(
 ) {
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    SettingsScaffold("Search", onBack, barLifted, onToggleBar) {
+    SettingsScaffold(stringResource(R.string.settings_category_search), onBack, barLifted, onToggleBar) {
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SettingSwitch(
                 index = 0,
                 count = 4,
-                title = "Search inside file contents",
-                subtitle = "Plain queries also match text inside files, not only names.",
+                title = stringResource(R.string.settings_search_in_content),
+                subtitle = stringResource(R.string.settings_search_in_content_subtitle),
                 checked = settings.searchInContent,
                 onCheckedChange = { scope.launch { repo.setSearchInContent(it) } }
             )
             SettingSwitch(
                 index = 1,
                 count = 4,
-                title = "Search inside archives",
-                subtitle = "Match entry names and entry contents inside zip, 7z, tar and rar archives.",
+                title = stringResource(R.string.settings_search_in_archives),
+                subtitle = stringResource(R.string.settings_search_in_archives_subtitle),
                 checked = settings.searchInArchives,
                 onCheckedChange = { scope.launch { repo.setSearchInArchives(it) } }
             )
             SettingSwitch(
                 index = 2,
                 count = 4,
-                title = "Case-sensitive content search",
-                subtitle = "Match the exact letter case when scanning file and entry contents.",
+                title = stringResource(R.string.settings_search_case_sensitive),
+                subtitle = stringResource(R.string.settings_search_case_sensitive_subtitle),
                 checked = settings.searchCaseSensitive,
                 onCheckedChange = { scope.launch { repo.setSearchCaseSensitive(it) } }
             )
@@ -689,16 +767,16 @@ fun SettingsSearchScreen(
                                     .weight(1f)
                                     .semantics { role = Role.RadioButton }
                             ) {
-                                Text("$size MB", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(stringResource(R.string.settings_scan_size_mb, size), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
             ) {
-                Text("Per-file content scan limit")
+                Text(stringResource(R.string.settings_scan_limit))
             }
             Text(
-                "Use content:\"text\" to match file contents and archive:\"name\" to match entries inside archives. Plain words match names, or contents when enabled above.",
+                stringResource(R.string.settings_search_help),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp)
@@ -722,7 +800,7 @@ fun SettingsStorageScreen(
     barLifted: Boolean = false,
     onToggleBar: () -> Unit = {}
 ) {
-    SettingsScaffold("Storage", onBack, barLifted, onToggleBar) {
+    SettingsScaffold(stringResource(R.string.settings_category_storage), onBack, barLifted, onToggleBar) {
         StorageSection(
             safAutoFallback = safAutoFallback,
             onSetSafAutoFallback = onSetSafAutoFallback,
@@ -750,7 +828,7 @@ fun SettingsElevationScreen(
     var showElevationDialog by remember { mutableStateOf(false) }
     val rootStatus by RootEngine.status.collectAsStateWithLifecycle(initialValue = RootStatus.Unknown)
     val shizukuStatus by ShizukuEngine.status.collectAsStateWithLifecycle(initialValue = ShizukuStatus.NoBinder)
-    SettingsScaffold("Elevation", onBack, barLifted, onToggleBar) {
+    SettingsScaffold(stringResource(R.string.settings_category_elevation), onBack, barLifted, onToggleBar) {
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SegmentedListItem(
                 onClick = { showElevationDialog = true },
@@ -762,21 +840,21 @@ fun SettingsElevationScreen(
                 supportingContent = {
                     Text(
                         when (settings.elevationMode) {
-                            "shizuku" -> "Shizuku · ${shizukuStatusLabel(shizukuStatus)}"
-                            "root" -> "Root · ${rootStatusLabel(rootStatus)}"
-                            else -> "Off"
+                            "shizuku" -> stringResource(R.string.settings_elevation_shizuku_status, shizukuStatusLabel(shizukuStatus))
+                            "root" -> stringResource(R.string.settings_elevation_root_status, rootStatusLabel(rootStatus))
+                            else -> stringResource(R.string.settings_elevation_off)
                         }
                     )
                 },
                 trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
             ) {
-                Text("Elevation")
+                Text(stringResource(R.string.settings_category_elevation))
             }
             SettingSwitch(
                 index = 1,
                 count = 2,
-                title = "Browse system paths",
-                subtitle = "Off by default. Lets you go above internal storage to /, /data, /data/data, /vendor and other users. /data and app data need Root; Shizuku can only read some system paths.",
+                title = stringResource(R.string.settings_browse_system_paths),
+                subtitle = stringResource(R.string.settings_browse_system_paths_subtitle),
                 checked = settings.systemBrowsing,
                 onCheckedChange = { scope.launch { repo.setSystemBrowsing(it) } }
             )
@@ -786,29 +864,29 @@ fun SettingsElevationScreen(
         AlertDialog(
             onDismissRequest = { showElevationDialog = false },
             icon = { Icon(Icons.Filled.Security, null) },
-            title = { Text("Elevation") },
+            title = { Text(stringResource(R.string.settings_category_elevation)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ElevationOption(
                         selected = settings.elevationMode == "off",
-                        title = "Off",
-                        subtitle = "Never use elevated access.",
+                        title = stringResource(R.string.settings_elevation_off),
+                        subtitle = stringResource(R.string.settings_elevation_off_subtitle),
                         onSelect = { scope.launch { repo.setElevationMode("off") } }
                     )
                     ElevationOption(
                         selected = settings.elevationMode == "shizuku",
-                        title = "Shizuku",
+                        title = stringResource(R.string.settings_elevation_shizuku),
                         subtitle = shizukuStatusLabel(shizukuStatus),
                         onSelect = { scope.launch { repo.setElevationMode("shizuku") } }
                     )
                     ElevationOption(
                         selected = settings.elevationMode == "root",
-                        title = "Root",
+                        title = stringResource(R.string.settings_elevation_root),
                         subtitle = rootStatusLabel(rootStatus),
                         onSelect = { scope.launch { repo.setElevationMode("root") } }
                     )
                     Text(
-                        "Shell-backed Shizuku cannot open app-private data (SELinux policy). Root-backed Shizuku and Root see everything.",
+                        stringResource(R.string.settings_elevation_dialog_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp)
@@ -816,7 +894,7 @@ fun SettingsElevationScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showElevationDialog = false }) { Text("Close") }
+                TextButton(onClick = { showElevationDialog = false }) { Text(stringResource(R.string.action_close)) }
             },
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -824,10 +902,10 @@ fun SettingsElevationScreen(
                         TextButton(
                             enabled = activity != null,
                             onClick = { activity?.let { ShizukuEngine.requestPermission(it) } }
-                        ) { Text("Request") }
+                        ) { Text(stringResource(R.string.settings_elevation_request)) }
                     }
                     if (settings.elevationMode == "root") {
-                        TextButton(onClick = { scope.launch { RootEngine.refresh() } }) { Text("Recheck") }
+                        TextButton(onClick = { scope.launch { RootEngine.refresh() } }) { Text(stringResource(R.string.settings_elevation_recheck)) }
                     }
                 }
             }
@@ -844,13 +922,13 @@ fun SettingsAboutScreen(
 ) {
     val uriHandler = LocalUriHandler.current
     val links = listOf(
-        "Source code" to "https://github.com/sysrv64/KArchiver",
-        "Releases" to "https://github.com/sysrv64/KArchiver/releases",
-        "Readme" to "https://github.com/sysrv64/KArchiver/blob/main/README.md",
-        "Questions and answers" to "https://github.com/sysrv64/KArchiver/blob/main/QA.md",
-        "Report an issue" to "https://github.com/sysrv64/KArchiver/issues"
+        stringResource(R.string.settings_link_source) to "https://github.com/sysrv64/KArchiver",
+        stringResource(R.string.settings_link_releases) to "https://github.com/sysrv64/KArchiver/releases",
+        stringResource(R.string.settings_link_readme) to "https://github.com/sysrv64/KArchiver/blob/main/README.md",
+        stringResource(R.string.settings_link_qa) to "https://github.com/sysrv64/KArchiver/blob/main/QA.md",
+        stringResource(R.string.settings_link_issue) to "https://github.com/sysrv64/KArchiver/issues"
     )
-    SettingsScaffold("About", onBack, barLifted, onToggleBar) {
+    SettingsScaffold(stringResource(R.string.settings_category_about), onBack, barLifted, onToggleBar) {
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SegmentedListItem(
                 onClick = {},
@@ -859,9 +937,9 @@ fun SettingsAboutScreen(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 leadingContent = { Icon(Icons.Filled.Tune, null) },
-                supportingContent = { Text("Android 8.0 or newer") }
+                supportingContent = { Text(stringResource(R.string.settings_about_android)) }
             ) {
-                Text("KArchiver ${BuildConfig.VERSION_NAME}")
+                Text(stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME))
             }
             SegmentedListItem(
                 onClick = {},
@@ -870,12 +948,12 @@ fun SettingsAboutScreen(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 leadingContent = { Icon(Icons.Filled.Description, null) },
-                supportingContent = { Text("Application GPL-3.0-only, Rust core Apache-2.0") }
+                supportingContent = { Text(stringResource(R.string.settings_about_license)) }
             ) {
-                Text("License")
+                Text(stringResource(R.string.settings_license))
             }
         }
-        SectionHeader("Diagnostics")
+        SectionHeader(stringResource(R.string.settings_section_diagnostics))
         val context = LocalContext.current
         val logScope = rememberCoroutineScope()
         var savingLogs by remember { mutableStateOf(false) }
@@ -889,8 +967,8 @@ fun SettingsAboutScreen(
                     logScope.launch {
                         val content = LogReport.collect(context)
                         val file = LogReport.save(context, content)
-                        logResult = if (file != null) "Saved to ${file.absolutePath}"
-                        else "Could not save logs"
+                        logResult = if (file != null) context.getString(R.string.settings_log_saved, file.absolutePath)
+                        else context.getString(R.string.settings_log_save_failed)
                         savingLogs = false
                     }
                 },
@@ -903,10 +981,10 @@ fun SettingsAboutScreen(
                     CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
                 }
-                Text(if (savingLogs) "Collecting logs…" else "Save logs to Downloads/KArchiver")
+                Text(if (savingLogs) stringResource(R.string.settings_log_collecting) else stringResource(R.string.settings_log_save))
             }
             Text(
-                "Saves app warnings and errors plus the Rust log into one file under Downloads/KArchiver.",
+                stringResource(R.string.settings_log_description),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -918,7 +996,7 @@ fun SettingsAboutScreen(
                 )
             }
         }
-        SectionHeader("Links")
+        SectionHeader(stringResource(R.string.settings_section_links))
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             links.forEachIndexed { index, (label, url) ->
                 SegmentedListItem(
@@ -937,25 +1015,28 @@ fun SettingsAboutScreen(
     }
 }
 
+@Composable
 private fun sortLabel(sort: SortBy): String = when (sort) {
-    SortBy.NAME -> "Name"
-    SortBy.DATE -> "Date"
-    SortBy.SIZE -> "Size"
-    SortBy.TYPE -> "Type"
+    SortBy.NAME -> stringResource(R.string.word_name)
+    SortBy.DATE -> stringResource(R.string.word_date)
+    SortBy.SIZE -> stringResource(R.string.word_size)
+    SortBy.TYPE -> stringResource(R.string.word_type)
 }
 
+@Composable
 private fun rootStatusLabel(status: RootStatus): String = when (status) {
-    RootStatus.Available -> "Root available"
-    RootStatus.Denied -> "Root denied"
-    RootStatus.Unavailable -> "No root"
-    RootStatus.Unknown -> "Checking"
+    RootStatus.Available -> stringResource(R.string.settings_root_available)
+    RootStatus.Denied -> stringResource(R.string.settings_root_denied)
+    RootStatus.Unavailable -> stringResource(R.string.settings_root_none)
+    RootStatus.Unknown -> stringResource(R.string.settings_status_checking)
 }
 
+@Composable
 private fun shizukuStatusLabel(status: ShizukuStatus): String = when (status) {
-    ShizukuStatus.Ready -> "Ready"
-    ShizukuStatus.PermissionRequired -> "Permission required"
-    ShizukuStatus.NoBinder -> "Shizuku not running"
-    ShizukuStatus.Unavailable -> "Unavailable"
+    ShizukuStatus.Ready -> stringResource(R.string.settings_status_ready)
+    ShizukuStatus.PermissionRequired -> stringResource(R.string.settings_status_permission_required)
+    ShizukuStatus.NoBinder -> stringResource(R.string.settings_shizuku_not_running)
+    ShizukuStatus.Unavailable -> stringResource(R.string.settings_status_unavailable)
 }
 
 @Composable
@@ -1026,16 +1107,16 @@ private fun StorageSection(
             ),
             leadingContent = { Icon(Icons.Filled.Storage, null) },
             supportingContent = {
-                Text("SD card and USB-OTG use direct file access on Android 11+. SAF is only a fallback.")
+                Text(stringResource(R.string.settings_storage_direct_note))
             }
         ) {
-            Text("Native access")
+            Text(stringResource(R.string.settings_storage_native_access))
         }
         SettingSwitch(
             index = 1,
             count = count,
-            title = "Automatic SAF fallback",
-            subtitle = "Use granted folders when direct access fails.",
+            title = stringResource(R.string.settings_storage_auto_saf),
+            subtitle = stringResource(R.string.settings_storage_auto_saf_subtitle),
             checked = safAutoFallback,
             onCheckedChange = onSetSafAutoFallback
         )
@@ -1048,14 +1129,14 @@ private fun StorageSection(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 leadingContent = { Icon(iconFor(volumeId), null) },
-                supportingContent = { Text("Granted folder. Switch prefers SAF over direct access.") },
+                supportingContent = { Text(stringResource(R.string.settings_granted_note)) },
                 trailingContent = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Switch(
                             checked = volumeId in forcedSaf,
                             onCheckedChange = { onSetForceSaf(volumeId, it) }
                         )
-                        TextButton(onClick = { onForgetGrant(volumeId) }) { Text("Forget") }
+                        TextButton(onClick = { onForgetGrant(volumeId) }) { Text(stringResource(R.string.settings_forget)) }
                     }
                 }
             ) {
@@ -1074,14 +1155,14 @@ private fun StorageSection(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 leadingContent = { Icon(iconFor(volume.id), null) },
-                supportingContent = { Text("Direct access preferred. Grant a folder as fallback.") },
+                supportingContent = { Text(stringResource(R.string.settings_storage_ungranted_note)) },
                 trailingContent = {
                     TextButton(
                         onClick = {
                             grantTargetId = volume.id
                             treePicker.launch(null)
                         }
-                    ) { Text("Grant") }
+                    ) { Text(stringResource(R.string.settings_grant)) }
                 }
             ) {
                 Text(volume.label, maxLines = 1, overflow = TextOverflow.Ellipsis)

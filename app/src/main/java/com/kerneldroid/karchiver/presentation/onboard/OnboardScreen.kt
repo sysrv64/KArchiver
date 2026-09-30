@@ -18,8 +18,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.kerneldroid.karchiver.R
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -50,10 +52,10 @@ fun OnboardScreen(onGranted: () -> Unit) {
                 modifier = Modifier.size(96.dp).padding(16.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
-            Text("File access", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+            Text(stringResource(R.string.library_onboard_title), style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
             Spacer(Modifier.height(12.dp))
             Text(
-                "KArchiver is a file manager and archiver. To read folders and unpack archives it needs full storage access (MANAGE_EXTERNAL_STORAGE). Without it the file list stays empty.",
+                stringResource(R.string.library_onboard_body),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -75,10 +77,10 @@ fun OnboardScreen(onGranted: () -> Unit) {
                 },
                 shapes = ButtonDefaults.shapes(shape = CircleShape, pressedShape = MaterialTheme.shapes.medium),
                 modifier = Modifier.fillMaxWidth().height(56.dp)
-            ) { Text("Grant access") }
+            ) { Text(stringResource(R.string.library_onboard_grant)) }
             Spacer(Modifier.height(12.dp))
             TextButton(onClick = { if (hasStoragePermission(ctx)) onGranted() }) {
-                Text("Check again")
+                Text(stringResource(R.string.library_onboard_retry))
             }
         }
     }

@@ -6,6 +6,7 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
+import com.kerneldroid.karchiver.R
 import java.io.File
 
 enum class VolumeKind {
@@ -166,7 +167,7 @@ fun loadAppVolumes(context: Context): List<AppVolume> {
         val primaryRoot = Environment.getExternalStorageDirectory()
         val primary = AppVolume(
             id = "primary",
-            label = "Internal storage",
+            label = context.getString(R.string.data_internal_storage),
             root = primaryRoot,
             isRemovable = false,
             isPrimary = true,
@@ -279,7 +280,7 @@ fun loadAppVolumes(context: Context): List<AppVolume> {
                         found.add(
                             AppVolume(
                                 id = "vol-" + root.name,
-                                label = "SD card (" + root.name + ")",
+                                label = context.getString(R.string.data_sd_card, root.name),
                                 root = root,
                                 isRemovable = true,
                                 isPrimary = false,
@@ -304,7 +305,7 @@ fun loadAppVolumes(context: Context): List<AppVolume> {
             listOf(
                 AppVolume(
                     id = "primary",
-                    label = "Internal storage",
+                    label = context.getString(R.string.data_internal_storage),
                     root = Environment.getExternalStorageDirectory(),
                     isRemovable = false,
                     isPrimary = true,

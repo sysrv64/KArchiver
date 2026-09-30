@@ -1,0 +1,26 @@
+<resources>
+    <string name="data_internal_storage">Внутреннее хранилище</string>
+    <string name="data_sd_card">SD-карта (%1$s)</string>
+    <string name="data_just_now">Только что</string>
+    <plurals name="data_minutes_ago">
+        <item quantity="one">%1$d мин назад</item>
+        <item quantity="few">%1$d мин назад</item>
+        <item quantity="many">%1$d мин назад</item>
+        <item quantity="other">%1$d мин назад</item>
+    </plurals>
+    <plurals name="data_hours_ago">
+        <item quantity="one">%1$d ч назад</item>
+        <item quantity="few">%1$d ч назад</item>
+        <item quantity="many">%1$d ч назад</item>
+        <item quantity="other">%1$d ч назад</item>
+    </plurals>
+    <string name="data_trash_not_accessible">Недоступно</string>
+    <string name="data_trash_could_not_create">Не удалось создать Корзину</string>
+    <string name="data_trash_could_not_move">Не удалось переместить в Корзину</string>
+    <string name="data_trash_item_missing">Элемент отсутствует</string>
+    <string name="data_trash_cannot_restore_location">Невозможно восстановить в это расположение</string>
+    <string name="data_trash_cannot_create_folder">Не удалось создать исходную папку</string>
+    <string name="data_trash_could_not_restore">Не удалось восстановить</string>
+    <string name="data_trash_could_not_delete">Не удалось удалить</string>
+    <string name="data_trash_could_not_delete_list">Не удалось удалить: %1$s</string>
+</resources>

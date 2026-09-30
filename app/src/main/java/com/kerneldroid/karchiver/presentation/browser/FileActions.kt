@@ -53,11 +53,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.FileProperties
 import com.kerneldroid.karchiver.data.FileSystemRepository
 import com.kerneldroid.karchiver.data.FormatRegistry
@@ -94,7 +96,7 @@ fun FileOverflowMenu(
                 shapes = MenuDefaults.groupShape(index = 0, count = 2)
             ) {
                 DropdownMenuItem(
-                    text = { Text("Properties") },
+                    text = { Text(stringResource(R.string.action_properties)) },
                     trailingIcon = { Icon(Icons.Filled.Info, null, Modifier.size(20.dp)) },
                     onClick = { onDismiss(); onProperties() }
                 )
@@ -105,19 +107,19 @@ fun FileOverflowMenu(
             shapes = MenuDefaults.groupShape(index = if (single) 1 else 0, count = if (single) 2 else 1)
         ) {
             DropdownMenuItem(
-                text = { Text("Share") },
+                text = { Text(stringResource(R.string.action_share)) },
                 trailingIcon = { Icon(Icons.Filled.Share, null, Modifier.size(20.dp)) },
                 onClick = { onDismiss(); onShare() }
             )
             if (single) {
                 DropdownMenuItem(
-                    text = { Text("Open with") },
+                    text = { Text(stringResource(R.string.action_open_with)) },
                     trailingIcon = { Icon(Icons.Filled.OpenInNew, null, Modifier.size(20.dp)) },
                     onClick = { onDismiss(); onOpenWith() }
                 )
             }
             DropdownMenuItem(
-                text = { Text("Copy path") },
+                text = { Text(stringResource(R.string.browser_copy_path)) },
                 trailingIcon = { Icon(Icons.Filled.ContentCopy, null, Modifier.size(20.dp)) },
                 onClick = { onDismiss(); onCopyPath() }
             )
@@ -240,10 +242,10 @@ fun PropertiesSheet(
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Properties", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.action_properties), style = MaterialTheme.typography.titleLarge)
             val p = props
             if (p == null) {
-                Text("Loading", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.word_loading), style = MaterialTheme.typography.bodyMedium)
                 return@Column
             }
             val canRename = p.canModify && target.canRename
@@ -251,7 +253,7 @@ fun PropertiesSheet(
             val canEditMode = p.canModify && target.canChmod
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Name", style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.word_name), style = MaterialTheme.typography.titleSmall)
                     Text(
                         p.name,
                         style = MaterialTheme.typography.bodyMedium,
@@ -262,12 +264,15 @@ fun PropertiesSheet(
                 }
                 if (canRename) {
                     IconButton(onClick = { showRename = true }) {
-                        Icon(Icons.Filled.Edit, "Rename")
+                        Icon(Icons.Filled.Edit, stringResource(R.string.action_rename))
                     }
                 }
             }
-            PropRow("Path", p.path)
-            PropRow("Size", p.sizeBytes?.let { formatBytes(it) } ?: "Unknown")
+            PropRow(stringResource(R.string.browser_path), p.path)
+            PropRow(
+                stringResource(R.string.word_size),
+                p.sizeBytes?.let { formatBytes(it) } ?: stringResource(R.string.browser_unknown)
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.then(
@@ -275,7 +280,7 @@ fun PropertiesSheet(
                 )
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Modified", style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.browser_modified), style = MaterialTheme.typography.titleSmall)
                     Text(
                         SimpleDateFormat("d MMM yyyy, HH:mm", Locale.US).format(Date(p.modified)),
                         style = MaterialTheme.typography.bodyMedium,
@@ -291,19 +296,21 @@ fun PropertiesSheet(
                     )
                 }
             }
-            PropRow("Type", p.mime)
+            PropRow(stringResource(R.string.word_type), p.mime)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Permissions", style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.word_permissions), style = MaterialTheme.typography.titleSmall)
                     Text(
                         if (p.modeSymbolic != null && p.modeOctal != null) "${p.modeSymbolic} (${p.modeOctal.toString(8).padStart(3, '0')})"
-                        else "Unavailable",
+                        else stringResource(R.string.browser_unavailable),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        if (p.elevated) "Elevated access — changes apply with extra rights."
-                        else if (p.canModify) "You can change permissions here."
-                        else "Read-only location.",
+                        stringResource(
+                            if (p.elevated) R.string.browser_elevated_access_note
+                            else if (p.canModify) R.string.browser_permissions_editable
+                            else R.string.browser_read_only_location
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -312,7 +319,7 @@ fun PropertiesSheet(
                     IconButton(onClick = {
                         octalText = p.modeOctal.toString(8).padStart(3, '0')
                         editMode = !editMode
-                    }) { Icon(Icons.Filled.Edit, "Edit permissions") }
+                    }) { Icon(Icons.Filled.Edit, stringResource(R.string.browser_edit_permissions)) }
                 }
             }
             if (editMode) {
@@ -322,11 +329,11 @@ fun PropertiesSheet(
                     onValueChange = { v ->
                         if (v.length <= 3 && v.all { it in '0'..'7' }) octalText = v
                     },
-                    label = { Text("Octal mode") },
+                    label = { Text(stringResource(R.string.browser_octal_mode)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     supportingText = {
-                        Text(parsed?.let { octalToSymbolic(it) } ?: "Three octal digits")
+                        Text(parsed?.let { octalToSymbolic(it) } ?: stringResource(R.string.browser_three_octal_digits))
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -334,7 +341,7 @@ fun PropertiesSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    TextButton(onClick = { editMode = false }) { Text("Cancel") }
+                    TextButton(onClick = { editMode = false }) { Text(stringResource(R.string.action_cancel)) }
                     TextButton(
                         enabled = parsed != null,
                         onClick = {
@@ -344,7 +351,7 @@ fun PropertiesSheet(
                                 target.chmod(mode) { reloadTick++ }
                             }
                         }
-                    ) { Text("Apply") }
+                    ) { Text(stringResource(R.string.browser_apply)) }
                 }
             }
         }
@@ -354,12 +361,12 @@ fun PropertiesSheet(
         AlertDialog(
             onDismissRequest = { showRename = false },
             icon = { Icon(Icons.Filled.Edit, null) },
-            title = { Text("Rename") },
+            title = { Text(stringResource(R.string.action_rename)) },
             text = {
                 OutlinedTextField(
                     value = draft,
                     onValueChange = { draft = it },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.word_name)) },
                     singleLine = true
                 )
             },
@@ -371,9 +378,9 @@ fun PropertiesSheet(
                         showRename = false
                         target.rename(name) { reloadTick++ }
                     }
-                ) { Text("Rename") }
+                ) { Text(stringResource(R.string.action_rename)) }
             },
-            dismissButton = { TextButton(onClick = { showRename = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showRename = false }) { Text(stringResource(R.string.action_cancel)) } }
         )
     }
     val currentModified = props?.modified
@@ -388,9 +395,9 @@ fun PropertiesSheet(
                     if (selected != null) {
                         target.setModified(mergeDateKeepingTime(selected, currentModified)) { reloadTick++ }
                     }
-                }) { Text("Set date") }
+                }) { Text(stringResource(R.string.browser_set_date)) }
             },
-            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text(stringResource(R.string.action_cancel)) } }
         ) {
             DatePicker(state = dateState)
         }
@@ -413,10 +420,10 @@ fun OpenWithDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Open with", maxLines = 1) },
+        title = { Text(stringResource(R.string.action_open_with), maxLines = 1) },
         text = {
             if (apps.isEmpty()) {
-                Text("No apps can open this file.")
+                Text(stringResource(R.string.browser_no_apps_open))
             } else {
                 LazyColumn {
                     items(apps, key = { it.activityInfo.packageName + it.activityInfo.name }) { app ->
@@ -453,7 +460,7 @@ fun OpenWithDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         }
     )
 }
@@ -464,7 +471,7 @@ fun shareFiles(context: Context, files: List<File>): Result<Unit> = runCatching 
         val intent = Intent(Intent.ACTION_SEND)
             .setType("text/plain")
             .putExtra(Intent.EXTRA_TEXT, files.first().absolutePath)
-        context.startActivity(Intent.createChooser(intent, "Share"))
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.action_share)))
         return@runCatching
     }
     if (files.any { it.isDirectory }) error("Cannot share folders")
@@ -474,7 +481,7 @@ fun shareFiles(context: Context, files: List<File>): Result<Unit> = runCatching 
             .setType(context.contentResolver.getType(uri) ?: "*/*")
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(Intent.createChooser(intent, "Share"))
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.action_share)))
         return@runCatching
     }
     val uris = ArrayList(files.map {
@@ -484,7 +491,7 @@ fun shareFiles(context: Context, files: List<File>): Result<Unit> = runCatching 
         .setType("*/*")
         .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    context.startActivity(Intent.createChooser(intent, "Share"))
+    context.startActivity(Intent.createChooser(intent, context.getString(R.string.action_share)))
 }
 
 fun copyPath(context: Context, file: File, quote: Boolean = false) = copyPaths(context, listOf(file), quote)

@@ -66,9 +66,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.VolumeStats
 import com.kerneldroid.karchiver.data.formatBytes
 import com.kerneldroid.karchiver.data.loadVolumeStats
@@ -80,7 +82,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private data class HomeEntry(val title: String, val path: String, val icon: ImageVector)
+private data class HomeEntry(val titleRes: Int, val path: String, val icon: ImageVector)
 
 private val StorageCardHeight = 168.dp
 
@@ -139,10 +141,10 @@ fun HomeScreen(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = Color.Transparent
                 ),
-                title = { Text("KArchiver") },
+                title = { Text(stringResource(R.string.library_home_title)) },
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Filled.Menu, "Menu")
+                        Icon(Icons.Filled.Menu, stringResource(R.string.library_desc_menu))
                     }
                 }
             )
@@ -154,7 +156,7 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                SectionHeader("Storage")
+                SectionHeader(stringResource(R.string.library_home_storage))
             }
             item {
                 StorageCarousel(
@@ -165,15 +167,15 @@ fun HomeScreen(
             }
             item {
                 if (historyEnabled) {
-                    ClickableSectionHeader(title = "Recent folders", onClick = onOpenHistory)
+                    ClickableSectionHeader(title = stringResource(R.string.library_home_recent_folders), onClick = onOpenHistory)
                 } else {
-                    SectionHeader("Recent folders")
+                    SectionHeader(stringResource(R.string.library_home_recent_folders))
                 }
             }
             if (recents.isEmpty()) {
                 item {
                     Text(
-                        "Folders you open will appear here",
+                        stringResource(R.string.library_home_recents_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 4.dp)
@@ -208,7 +210,7 @@ fun HomeScreen(
                 }
             }
             item {
-                SectionHeader("Quick access")
+                SectionHeader(stringResource(R.string.library_home_quick_access))
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
@@ -222,7 +224,7 @@ fun HomeScreen(
                             leadingContent = { Icon(entry.icon, null) },
                             trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
                         ) {
-                            Text(entry.title)
+                            Text(stringResource(entry.titleRes))
                         }
                     }
                 }
@@ -231,9 +233,10 @@ fun HomeScreen(
     }
 }
 
+@Composable
 private fun folderLabel(file: File): String {
     if (file.absolutePath == Environment.getExternalStorageDirectory().absolutePath) {
-        return "Internal storage"
+        return stringResource(R.string.library_home_internal_storage)
     }
     return file.name.ifEmpty { file.absolutePath }
 }
@@ -386,7 +389,11 @@ private fun StorageCard(
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                         Text(
-                            text = "${formatBytes(stats.freeBytes)} free of ${formatBytes(stats.totalBytes)}",
+                            text = stringResource(
+                                R.string.library_home_free_of,
+                                formatBytes(stats.freeBytes),
+                                formatBytes(stats.totalBytes)
+                            ),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -394,13 +401,13 @@ private fun StorageCard(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatBadge(
-                            text = "${(stats.usedFraction * 100).toInt()}% used",
+                            text = stringResource(R.string.library_home_percent_used, (stats.usedFraction * 100).toInt()),
                             containerColor = progressColor,
                             contentColor = if (lowSpace) MaterialTheme.colorScheme.onError
                             else MaterialTheme.colorScheme.onPrimary
                         )
                         StatBadge(
-                            text = "${formatBytes(stats.usedBytes)} used",
+                            text = stringResource(R.string.library_home_used_size, formatBytes(stats.usedBytes)),
                             containerColor = MaterialTheme.colorScheme.tertiary,
                             contentColor = MaterialTheme.colorScheme.onTertiary
                         )
@@ -416,7 +423,7 @@ private fun StorageCard(
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                "Running low on space",
+                                stringResource(R.string.library_home_low_space),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.error
                             )
@@ -487,15 +494,15 @@ private fun SectionHeader(title: String) {
 }
 
 private fun homeEntries(): List<HomeEntry> {
-    fun publicDir(type: String, title: String, icon: ImageVector): HomeEntry =
-        HomeEntry(title, Environment.getExternalStoragePublicDirectory(type).absolutePath, icon)
+    fun publicDir(type: String, titleRes: Int, icon: ImageVector): HomeEntry =
+        HomeEntry(titleRes, Environment.getExternalStoragePublicDirectory(type).absolutePath, icon)
 
     return listOf(
-        HomeEntry("Internal storage", Environment.getExternalStorageDirectory().absolutePath, Icons.Filled.Folder),
-        publicDir(Environment.DIRECTORY_DOWNLOADS, "Downloads", Icons.Filled.Download),
-        publicDir(Environment.DIRECTORY_DOCUMENTS, "Documents", Icons.Filled.Description),
-        publicDir(Environment.DIRECTORY_PICTURES, "Pictures", Icons.Filled.Image),
-        publicDir(Environment.DIRECTORY_MUSIC, "Music", Icons.Filled.AudioFile),
-        publicDir(Environment.DIRECTORY_MOVIES, "Movies", Icons.Filled.VideoFile)
+        HomeEntry(R.string.library_home_internal_storage, Environment.getExternalStorageDirectory().absolutePath, Icons.Filled.Folder),
+        publicDir(Environment.DIRECTORY_DOWNLOADS, R.string.library_home_downloads, Icons.Filled.Download),
+        publicDir(Environment.DIRECTORY_DOCUMENTS, R.string.library_home_documents, Icons.Filled.Description),
+        publicDir(Environment.DIRECTORY_PICTURES, R.string.library_home_pictures, Icons.Filled.Image),
+        publicDir(Environment.DIRECTORY_MUSIC, R.string.library_home_music, Icons.Filled.AudioFile),
+        publicDir(Environment.DIRECTORY_MOVIES, R.string.library_home_movies, Icons.Filled.VideoFile)
     )
 }

@@ -1,0 +1,34 @@
+<resources>
+    <string name="action_ok">ОК</string>
+    <string name="action_cancel">Отмена</string>
+    <string name="action_close">Закрыть</string>
+    <string name="action_done">Готово</string>
+    <string name="action_save">Сохранить</string>
+    <string name="action_rename">Переименовать</string>
+    <string name="action_paste">Вставить</string>
+    <string name="action_move">Переместить</string>
+    <string name="action_share">Поделиться</string>
+    <string name="action_add">Добавить</string>
+    <string name="action_remove">Убрать</string>
+    <string name="action_clear">Очистить</string>
+    <string name="action_retry">Повторить</string>
+    <string name="action_open_with">Открыть с помощью</string>
+    <string name="action_properties">Свойства</string>
+    <string name="action_search">Поиск</string>
+    <string name="action_settings">Настройки</string>
+    <string name="word_yes">Да</string>
+    <string name="word_no">Нет</string>
+    <string name="word_replace">Заменить</string>
+    <string name="word_skip">Пропустить</string>
+    <string name="word_keep_both">Оба</string>
+    <string name="word_folder">Папка</string>
+    <string name="word_file">Файл</string>
+    <string name="word_name">Имя</string>
+    <string name="word_size">Размер</string>
+    <string name="word_date">Дата</string>
+    <string name="word_type">Тип</string>
+    <string name="word_error">Ошибка</string>
+    <string name="word_loading">Загрузка…</string>
+    <string name="word_password">Пароль</string>
+    <string name="word_permissions">Права</string>
+</resources>

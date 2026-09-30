@@ -59,11 +59,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
 import com.kerneldroid.karchiver.data.history.HistoryEntry
 import com.kerneldroid.karchiver.data.history.HistorySection
@@ -82,17 +84,23 @@ private sealed interface HistoryRow {
     data class Entry(val entry: HistoryEntry, val index: Int, val count: Int) : HistoryRow
 }
 
-private fun sectionLabel(section: HistorySection): String = when (section) {
-    HistorySection.TODAY -> "Today"
-    HistorySection.YESTERDAY -> "Yesterday"
-    HistorySection.EARLIER -> "Earlier"
-}
+@Composable
+private fun sectionLabel(section: HistorySection): String = stringResource(
+    when (section) {
+        HistorySection.TODAY -> R.string.library_history_section_today
+        HistorySection.YESTERDAY -> R.string.library_history_section_yesterday
+        HistorySection.EARLIER -> R.string.library_history_section_earlier
+    }
+)
 
-private fun filterLabel(filter: HistoryTypeFilter): String = when (filter) {
-    HistoryTypeFilter.ALL -> "All"
-    HistoryTypeFilter.FOLDERS -> "Folders"
-    HistoryTypeFilter.FILES -> "Files"
-}
+@Composable
+private fun filterLabel(filter: HistoryTypeFilter): String = stringResource(
+    when (filter) {
+        HistoryTypeFilter.ALL -> R.string.library_history_filter_all
+        HistoryTypeFilter.FOLDERS -> R.string.library_history_filter_folders
+        HistoryTypeFilter.FILES -> R.string.library_history_filter_files
+    }
+)
 
 private fun buildRows(sections: List<Pair<HistorySection, List<HistoryEntry>>>): List<HistoryRow> {
     val rows = mutableListOf<HistoryRow>()
@@ -134,10 +142,12 @@ fun HistoryScreen(
     fun open(entry: HistoryEntry) {
         haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
         if (!onOpenEntry(entry)) {
+            val unavailableMessage = context.resources.getString(R.string.library_history_unavailable)
+            val removeLabel = context.resources.getString(R.string.library_history_remove_action)
             scope.launch {
                 val result = snackbar.showSnackbar(
-                    message = "This item is no longer available",
-                    actionLabel = "Remove"
+                    message = unavailableMessage,
+                    actionLabel = removeLabel
                 )
                 if (result == SnackbarResult.ActionPerformed) vm.remove(entry.path)
             }
@@ -157,7 +167,7 @@ fun HistoryScreen(
                             searchActive = false
                             vm.setQuery("")
                         },
-                        placeholder = "Search history"
+                        placeholder = stringResource(R.string.library_history_search_hint)
                     )
                 } else {
                     TopAppBar(
@@ -169,18 +179,18 @@ fun HistoryScreen(
                             containerColor = Color.Transparent,
                             scrolledContainerColor = Color.Transparent
                         ),
-                        title = { Text("History") },
+                        title = { Text(stringResource(R.string.library_history_title)) },
                         navigationIcon = {
                             IconButton(onClick = onBack) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.library_desc_back))
                             }
                         },
                         actions = {
                             IconButton(onClick = { searchActive = true }) {
-                                Icon(Icons.Filled.Search, "Search history")
+                                Icon(Icons.Filled.Search, stringResource(R.string.library_history_search_hint))
                             }
                             IconButton(onClick = { confirmClear = true }, enabled = hasAny) {
-                                Icon(Icons.Filled.DeleteSweep, "Clear history")
+                                Icon(Icons.Filled.DeleteSweep, stringResource(R.string.library_desc_clear_history))
                             }
                         }
                     )
@@ -210,7 +220,7 @@ fun HistoryScreen(
                 IconButton(onClick = vm::toggleSort) {
                     Icon(
                         Icons.Filled.Sort,
-                        if (newestFirst) "Newest first" else "Oldest first"
+                        if (newestFirst) stringResource(R.string.library_desc_newest_first) else stringResource(R.string.library_desc_oldest_first)
                     )
                 }
             }
@@ -240,7 +250,8 @@ fun HistoryScreen(
                                     onClick = { open(row.entry) },
                                     onCopyPath = {
                                         copyPath(context, File(row.entry.path), quoteCopyPath)
-                                        scope.launch { snackbar.showSnackbar("Path copied") }
+                                        val copiedMessage = context.resources.getString(R.string.library_history_path_copied)
+                                        scope.launch { snackbar.showSnackbar(copiedMessage) }
                                     },
                                     onRemove = { vm.remove(row.entry.path) }
                                 )
@@ -255,25 +266,26 @@ fun HistoryScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear history?") },
-            text = { Text("This removes all entries from the history. This cannot be undone.") },
+            title = { Text(stringResource(R.string.library_history_clear_title)) },
+            text = { Text(stringResource(R.string.library_history_clear_text)) },
             confirmButton = {
                 Button(
                     onClick = {
                         confirmClear = false
                         vm.clear()
-                        scope.launch { snackbar.showSnackbar("History cleared") }
+                        val clearedMessage = context.resources.getString(R.string.library_history_cleared)
+                        scope.launch { snackbar.showSnackbar(clearedMessage) }
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError
                     )
                 ) {
-                    Text("Clear")
+                    Text(stringResource(R.string.library_history_clear_confirm))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmClear = false }) { Text("Cancel") }
+                TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.library_action_cancel)) }
             }
         )
     }
@@ -316,6 +328,11 @@ private fun HistoryItemRow(
     onCopyPath: () -> Unit,
     onRemove: () -> Unit
 ) {
+    val context = LocalContext.current
+    val timeLabel = relativeTime(context, entry.lastVisitedAt, now)
+    val visitsLabel = if (entry.visitCount > 1) {
+        context.resources.getQuantityString(R.plurals.library_history_visits, entry.visitCount, entry.visitCount)
+    } else null
     SegmentedListItem(
         onClick = onClick,
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
@@ -339,21 +356,21 @@ private fun HistoryItemRow(
         trailingContent = {
             Box {
                 IconButton(onClick = { onMenuOpenChange(true) }) {
-                    Icon(Icons.Filled.MoreVert, "More options")
+                    Icon(Icons.Filled.MoreVert, stringResource(R.string.library_desc_more_options))
                 }
                 DropdownMenu(
                     expanded = menuOpen,
                     onDismissRequest = { onMenuOpenChange(false) }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Copy path") },
+                        text = { Text(stringResource(R.string.library_history_copy_path)) },
                         onClick = {
                             onMenuOpenChange(false)
                             onCopyPath()
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Remove from history") },
+                        text = { Text(stringResource(R.string.library_history_remove_entry)) },
                         onClick = {
                             onMenuOpenChange(false)
                             onRemove()
@@ -367,8 +384,8 @@ private fun HistoryItemRow(
             Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 text = buildString {
-                    append(relativeTime(entry.lastVisitedAt, now))
-                    if (entry.visitCount > 1) append(" • ${entry.visitCount} visits")
+                    append(timeLabel)
+                    if (visitsLabel != null) append(" • ").append(visitsLabel)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -389,13 +406,13 @@ private fun HistoryEmptyState(hasAny: Boolean) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = if (hasAny) "No matching entries" else "No history yet",
+            text = if (hasAny) stringResource(R.string.library_history_empty_filtered_title) else stringResource(R.string.library_history_empty_title),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = if (hasAny) "Try a different search or filter"
-            else "Folders and files you open will appear here",
+            text = if (hasAny) stringResource(R.string.library_history_empty_filtered_sub)
+            else stringResource(R.string.library_history_empty_sub),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp)

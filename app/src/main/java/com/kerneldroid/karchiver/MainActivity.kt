@@ -1,5 +1,6 @@
 package com.kerneldroid.karchiver
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -14,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kerneldroid.karchiver.data.LocaleStore
 import com.kerneldroid.karchiver.data.SettingsRepository
 import com.kerneldroid.karchiver.data.ThemeMode
 import com.kerneldroid.karchiver.presentation.KArchiverRoot
@@ -26,7 +28,12 @@ class MainActivity : ComponentActivity() {
 
     private val incomingFile = mutableStateOf<File?>(null)
 
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleStore.wrap(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        LocaleStore.migrateToSystem(this)
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false

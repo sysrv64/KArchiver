@@ -1,0 +1,20 @@
+<resources>
+    <string name="data_internal_storage">内部存储</string>
+    <string name="data_sd_card">SD 卡 (%1$s)</string>
+    <string name="data_just_now">刚刚</string>
+    <plurals name="data_minutes_ago">
+        <item quantity="other">%1$d 分钟前</item>
+    </plurals>
+    <plurals name="data_hours_ago">
+        <item quantity="other">%1$d 小时前</item>
+    </plurals>
+    <string name="data_trash_not_accessible">无法访问</string>
+    <string name="data_trash_could_not_create">无法创建回收站</string>
+    <string name="data_trash_could_not_move">无法移入回收站</string>
+    <string name="data_trash_item_missing">项目已丢失</string>
+    <string name="data_trash_cannot_restore_location">无法恢复到此位置</string>
+    <string name="data_trash_cannot_create_folder">无法创建原始文件夹</string>
+    <string name="data_trash_could_not_restore">无法恢复</string>
+    <string name="data_trash_could_not_delete">无法删除</string>
+    <string name="data_trash_could_not_delete_list">无法删除：%1$s</string>
+</resources>

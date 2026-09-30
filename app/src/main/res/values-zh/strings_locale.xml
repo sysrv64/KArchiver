@@ -1,0 +1,8 @@
+<resources>
+    <string name="settings_language">语言</string>
+    <string name="settings_language_subtitle">应用语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="language_en">English</string>
+    <string name="language_ru">Русский</string>
+    <string name="language_zh">中文</string>
+</resources>

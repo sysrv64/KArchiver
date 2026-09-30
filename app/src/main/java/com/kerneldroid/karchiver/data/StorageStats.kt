@@ -3,6 +3,7 @@ package com.kerneldroid.karchiver.data
 import android.content.Context
 import android.os.Environment
 import android.os.StatFs
+import com.kerneldroid.karchiver.R
 import java.io.File
 
 data class VolumeStats(
@@ -18,7 +19,7 @@ data class VolumeStats(
 fun loadVolumeStats(context: Context): List<VolumeStats> {
     val volumes = mutableListOf<VolumeStats>()
     val internalRoot = Environment.getExternalStorageDirectory()
-    statOf("Internal storage", internalRoot)?.let { volumes += it }
+    statOf(context.getString(R.string.data_internal_storage), internalRoot)?.let { volumes += it }
     context.getExternalFilesDirs(null)
         .filterNotNull()
         .mapNotNull { dir ->
@@ -27,7 +28,7 @@ fun loadVolumeStats(context: Context): List<VolumeStats> {
         .distinctBy { it.absolutePath }
         .filter { it.absolutePath != internalRoot.absolutePath }
         .forEach { root ->
-            statOf("SD card (${root.name})", root)?.let { volumes += it }
+            statOf(context.getString(R.string.data_sd_card, root.name), root)?.let { volumes += it }
         }
     return volumes
 }

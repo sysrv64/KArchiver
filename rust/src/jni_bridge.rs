@@ -9,9 +9,10 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
-use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JLongArray, JObject, JObjectArray, JString};
+use jni::strings::JNIString;
 use jni::sys::{jboolean, jint, jlong};
+use jni::{AttachGuard, Env, EnvUnowned};
 use serde::Serialize;
 
 use crate::backend;
@@ -19,13 +20,16 @@ use crate::error::{ArchiveError, Result};
 use crate::format;
 use crate::io_util::{CODE_CANCELLED, CODE_OK, Limits, clear_cancel, request_cancel};
 
-fn throw(env: &mut JNIEnv, msg: impl AsRef<str>) {
-    let _ = env.throw_new("java/lang/RuntimeException", msg.as_ref());
+fn throw(env: &mut Env, msg: impl AsRef<str>) {
+    let _ = env.throw_new(
+        jni::jni_str!("java/lang/RuntimeException"),
+        JNIString::new(msg.as_ref()),
+    );
 }
 
-fn read_string(env: &mut JNIEnv, value: &JString) -> Result<String> {
-    env.get_string(value)
-        .map(Into::into)
+fn read_string(env: &mut Env, value: &JString) -> Result<String> {
+    value
+        .try_to_string(env)
         .map_err(|e| ArchiveError::backend(format!("invalid Java string: {e}")))
 }
 
@@ -37,7 +41,7 @@ impl Drop for WipedBytes {
     }
 }
 
-fn read_password(env: &mut JNIEnv, value: &JByteArray) -> Result<WipedBytes> {
+fn read_password(env: &mut Env, value: &JByteArray) -> Result<WipedBytes> {
     env.convert_byte_array(value)
         .map(WipedBytes)
         .map_err(|e| ArchiveError::backend(format!("invalid Java byte array: {e}")))
@@ -47,48 +51,52 @@ fn password_str(bytes: &WipedBytes) -> Result<&str> {
     std::str::from_utf8(&bytes.0).map_err(|_| ArchiveError::invalid("password is not valid UTF-8"))
 }
 
-fn read_sources(env: &mut JNIEnv, array: &JObjectArray) -> Result<Vec<PathBuf>> {
-    let len = env
-        .get_array_length(array)
+fn read_sources(env: &mut Env, array: &JObjectArray) -> Result<Vec<PathBuf>> {
+    let len = array
+        .len(env)
         .map_err(|e| ArchiveError::backend(format!("array length: {e}")))?;
-    let mut out = Vec::with_capacity(len as usize);
+    let mut out = Vec::with_capacity(len);
     for i in 0..len {
-        let element = env
-            .get_object_array_element(array, i)
+        let element = array
+            .get_element(env, i)
             .map_err(|e| ArchiveError::backend(format!("array element {i}: {e}")))?;
         if element.is_null() {
             continue;
         }
-        let text = read_string(env, (&element).into());
-        let _ = env.delete_local_ref(element);
+        let element: JString = env
+            .cast_local::<JString>(element)
+            .map_err(|e| ArchiveError::backend(format!("array element {i}: {e}")))?;
+        let text = read_string(env, &element);
+        env.delete_local_ref(element);
         out.push(PathBuf::from(text?));
     }
     Ok(out)
 }
 
 fn build_string_array<'local>(
-    env: &mut JNIEnv<'local>,
+    env: &mut Env<'local>,
     items: &[String],
 ) -> Result<JObjectArray<'local>> {
     let class = env
-        .find_class("java/lang/String")
+        .find_class(jni::jni_str!("java/lang/String"))
         .map_err(|e| ArchiveError::backend(format!("find String: {e}")))?;
     let array = env
         .new_object_array(items.len() as i32, &class, JObject::null())
         .map_err(|e| ArchiveError::backend(format!("new array: {e}")))?;
-    let _ = env.delete_local_ref(class);
+    env.delete_local_ref(class);
     for (i, item) in items.iter().enumerate() {
         let element = env
             .new_string(item)
             .map_err(|e| ArchiveError::backend(format!("new string: {e}")))?;
-        env.set_object_array_element(&array, i as i32, &element)
+        array
+            .set_element(env, i, &element)
             .map_err(|e| ArchiveError::backend(format!("set element: {e}")))?;
-        let _ = env.delete_local_ref(element);
+        env.delete_local_ref(element);
     }
     Ok(array)
 }
 
-fn finish_int(env: &mut JNIEnv, op: &str, outcome: std::thread::Result<Result<()>>) -> jint {
+fn finish_int(env: &mut Env, op: &str, outcome: std::thread::Result<Result<()>>) -> jint {
     match outcome {
         Ok(Ok(())) => CODE_OK,
         Ok(Err(ArchiveError::Cancelled)) => {
@@ -106,26 +114,29 @@ fn finish_int(env: &mut JNIEnv, op: &str, outcome: std::thread::Result<Result<()
     }
 }
 
-fn read_strings(env: &mut JNIEnv, array: &JObjectArray) -> Result<Vec<String>> {
-    let len = env
-        .get_array_length(array)
+fn read_strings(env: &mut Env, array: &JObjectArray) -> Result<Vec<String>> {
+    let len = array
+        .len(env)
         .map_err(|e| ArchiveError::backend(format!("array length: {e}")))?;
-    let mut out = Vec::with_capacity(len as usize);
+    let mut out = Vec::with_capacity(len);
     for i in 0..len {
-        let element = env
-            .get_object_array_element(array, i)
+        let element = array
+            .get_element(env, i)
             .map_err(|e| ArchiveError::backend(format!("array element {i}: {e}")))?;
         if element.is_null() {
             continue;
         }
-        let text = read_string(env, (&element).into());
-        let _ = env.delete_local_ref(element);
+        let element: JString = env
+            .cast_local::<JString>(element)
+            .map_err(|e| ArchiveError::backend(format!("array element {i}: {e}")))?;
+        let text = read_string(env, &element);
+        env.delete_local_ref(element);
         out.push(text?);
     }
     Ok(out)
 }
 
-fn finish_void(env: &mut JNIEnv, op: &str, outcome: std::thread::Result<Result<()>>) {
+fn finish_void(env: &mut Env, op: &str, outcome: std::thread::Result<Result<()>>) {
     match outcome {
         Ok(Ok(())) => {}
         Ok(Err(ArchiveError::Cancelled)) => {
@@ -143,12 +154,14 @@ fn finish_void(env: &mut JNIEnv, op: &str, outcome: std::thread::Result<Result<(
 /// `setLogFile(path: String)`
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setLogFile(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     path: JString,
 ) {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let _ = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
-        let text = read_string(&mut env, &path)?;
+        let text = read_string(env, &path)?;
         crate::io_util::set_log_path(Some(PathBuf::from(text)));
         Ok(())
     }));
@@ -157,64 +170,70 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setLogFile
 /// `compress(srcPaths: Array<String>, destPath: String): Int`
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compress(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     task_id: jlong,
     src_array: JObjectArray,
     dest_str: JString,
 ) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         let _guard = crate::io_util::TaskGuard::new(task_id as u64);
-        let sources = read_sources(&mut env, &src_array)?;
-        let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
+        let sources = read_sources(env, &src_array)?;
+        let dest = PathBuf::from(read_string(env, &dest_str)?);
         let format = format::format_for_destination(&dest)?;
         backend::compress(&sources, &dest, format, &Limits::default())
     }));
-    finish_int(&mut env, "compress", outcome)
+    finish_int(env, "compress", outcome)
 }
 
 /// `extract(archivePath: String, destDir: String): Int`
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extract(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     task_id: jlong,
     archive_str: JString,
     dest_str: JString,
 ) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         let _guard = crate::io_util::TaskGuard::new(task_id as u64);
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let dest = PathBuf::from(read_string(env, &dest_str)?);
         let format = format::detect(&archive)?;
         backend::extract(&archive, &dest, format, &Limits::default())
     }));
-    finish_int(&mut env, "extract", outcome)
+    finish_int(env, "extract", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractFiltered(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     task_id: jlong,
     archive_str: JString,
     dest_str: JString,
     names_array: JObjectArray,
 ) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         let _guard = crate::io_util::TaskGuard::new(task_id as u64);
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
-        let names = read_strings(&mut env, &names_array)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let dest = PathBuf::from(read_string(env, &dest_str)?);
+        let names = read_strings(env, &names_array)?;
         let format = format::detect(&archive)?;
         backend::extract_filtered(&archive, format, &names, &dest)
     }));
-    finish_int(&mut env, "extractFiltered", outcome)
+    finish_int(env, "extractFiltered", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractFilteredWithPassword(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     task_id: jlong,
     archive_str: JString,
@@ -222,45 +241,49 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractFil
     names_array: JObjectArray,
     password_bytes: JByteArray,
 ) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         let _guard = crate::io_util::TaskGuard::new(task_id as u64);
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
-        let names = read_strings(&mut env, &names_array)?;
-        let password = read_password(&mut env, &password_bytes)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let dest = PathBuf::from(read_string(env, &dest_str)?);
+        let names = read_strings(env, &names_array)?;
+        let password = read_password(env, &password_bytes)?;
         let format = format::detect(&archive)?;
         backend::extract_filtered_with_password(&archive, format, &names, &dest, &password.0)
     }));
-    finish_int(&mut env, "extractFilteredWithPassword", outcome)
+    finish_int(env, "extractFilteredWithPassword", outcome)
 }
 
 /// `listArchive(archivePath: String): Array<String>`
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchive<'local>(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     archive_str: JString<'local>,
 ) -> JObjectArray<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<Vec<String>> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
         let format = format::detect(&archive)?;
         backend::list(&archive, format)
     }));
     match outcome {
-        Ok(Ok(entries)) => match build_string_array(&mut env, &entries) {
+        Ok(Ok(entries)) => match build_string_array(env, &entries) {
             Ok(array) => array,
             Err(e) => {
-                throw(&mut env, format!("listArchive failed: {e}"));
+                throw(env, format!("listArchive failed: {e}"));
                 JObjectArray::default()
             }
         },
         Ok(Err(e)) => {
-            throw(&mut env, format!("listArchive failed: {e}"));
+            throw(env, format!("listArchive failed: {e}"));
             JObjectArray::default()
         }
         Err(_) => {
-            throw(&mut env, "listArchive failed: internal panic");
+            throw(env, "listArchive failed: internal panic");
             JObjectArray::default()
         }
     }
@@ -326,13 +349,15 @@ fn preview_to_json(listing: &crate::backend::PreviewListing) -> Result<String> {
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiveDetailed<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     archive_str: JString<'local>,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
         let format = format::detect(&archive)?;
         let listing = backend::list_detailed(&archive, format)?;
         preview_to_json(&listing)
@@ -341,16 +366,16 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiv
         Ok(Ok(json)) => match env.new_string(json) {
             Ok(s) => s,
             Err(e) => {
-                throw(&mut env, format!("listArchiveDetailed failed: {e}"));
+                throw(env, format!("listArchiveDetailed failed: {e}"));
                 JString::default()
             }
         },
         Ok(Err(e)) => {
-            throw(&mut env, format!("listArchiveDetailed failed: {e}"));
+            throw(env, format!("listArchiveDetailed failed: {e}"));
             JString::default()
         }
         Err(_) => {
-            throw(&mut env, "listArchiveDetailed failed: internal panic");
+            throw(env, "listArchiveDetailed failed: internal panic");
             JString::default()
         }
     }
@@ -358,7 +383,7 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiv
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_cancel(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
 ) {
     request_cancel();
@@ -366,7 +391,7 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_cancel(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_cancelTask(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     task_id: jlong,
 ) {
@@ -375,13 +400,15 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_cancelTask
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_getProgress<'local>(
-    env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> JLongArray<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let (done, total) = crate::io_util::progress_get();
     let vals = [done as jlong, total as jlong];
-    match env.new_long_array(2) {
-        Ok(arr) => match env.set_long_array_region(&arr, 0, &vals) {
+    match JLongArray::new(env, 2) {
+        Ok(arr) => match arr.set_region(env, 0, &vals) {
             Ok(()) => arr,
             Err(_) => JLongArray::default(),
         },
@@ -391,14 +418,16 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_getProgres
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_getTaskProgress<'local>(
-    env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     task_id: jlong,
 ) -> JLongArray<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let (done, total) = crate::io_util::task_progress_get(task_id as u64);
     let vals = [done as jlong, total as jlong];
-    match env.new_long_array(2) {
-        Ok(arr) => match env.set_long_array_region(&arr, 0, &vals) {
+    match JLongArray::new(env, 2) {
+        Ok(arr) => match arr.set_region(env, 0, &vals) {
             Ok(()) => arr,
             Err(_) => JLongArray::default(),
         },
@@ -408,59 +437,65 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_getTaskPro
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compressWithPassword(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     task_id: jlong,
     src_array: JObjectArray,
     dest_str: JString,
     password_bytes: JByteArray,
 ) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         let _guard = crate::io_util::TaskGuard::new(task_id as u64);
-        let sources = read_sources(&mut env, &src_array)?;
-        let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
-        let password = read_password(&mut env, &password_bytes)?;
+        let sources = read_sources(env, &src_array)?;
+        let dest = PathBuf::from(read_string(env, &dest_str)?);
+        let password = read_password(env, &password_bytes)?;
         let pw = password_str(&password)?;
         let format = format::format_for_destination(&dest)?;
         backend::compress_with_password(&sources, &dest, format, &Limits::default(), pw)
     }));
-    finish_int(&mut env, "compressWithPassword", outcome)
+    finish_int(env, "compressWithPassword", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractWithPassword(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     task_id: jlong,
     archive_str: JString,
     dest_str: JString,
     password_bytes: JByteArray,
 ) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         let _guard = crate::io_util::TaskGuard::new(task_id as u64);
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
-        let password = read_password(&mut env, &password_bytes)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let dest = PathBuf::from(read_string(env, &dest_str)?);
+        let password = read_password(env, &password_bytes)?;
         let pw = password_str(&password)?;
         let format = format::detect(&archive)?;
         backend::extract_with_password(&archive, &dest, format, &Limits::default(), pw)
     }));
-    finish_int(&mut env, "extractWithPassword", outcome)
+    finish_int(env, "extractWithPassword", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiveDetailedWithPassword<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     archive_str: JString<'local>,
     password_bytes: JByteArray<'local>,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let password = read_password(&mut env, &password_bytes)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let password = read_password(env, &password_bytes)?;
         let pw = password_str(&password)?;
         let format = format::detect(&archive)?;
         backend::list_detailed_with_password(&archive, format, pw)
@@ -470,23 +505,17 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiv
         Ok(Ok(json)) => match env.new_string(json) {
             Ok(s) => s,
             Err(e) => {
-                throw(
-                    &mut env,
-                    format!("listArchiveDetailedWithPassword failed: {e}"),
-                );
+                throw(env, format!("listArchiveDetailedWithPassword failed: {e}"));
                 JString::default()
             }
         },
         Ok(Err(e)) => {
-            throw(
-                &mut env,
-                format!("listArchiveDetailedWithPassword failed: {e}"),
-            );
+            throw(env, format!("listArchiveDetailedWithPassword failed: {e}"));
             JString::default()
         }
         Err(_) => {
             throw(
-                &mut env,
+                env,
                 "listArchiveDetailedWithPassword failed: internal panic",
             );
             JString::default()
@@ -498,15 +527,17 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiv
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_testArchiveWithPassword<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     archive_str: JString<'local>,
     password_bytes: JByteArray<'local>,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let password = read_password(&mut env, &password_bytes)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let password = read_password(env, &password_bytes)?;
         let pw = password_str(&password)?;
         let format = format::detect(&archive)?;
         match backend::test_archive_with_password(&archive, format, &Limits::default(), pw) {
@@ -519,16 +550,16 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_testArchiv
         Ok(Ok(json)) => match env.new_string(json) {
             Ok(s) => s,
             Err(e) => {
-                throw(&mut env, format!("testArchiveWithPassword failed: {e}"));
+                throw(env, format!("testArchiveWithPassword failed: {e}"));
                 JString::default()
             }
         },
         Ok(Err(e)) => {
-            throw(&mut env, format!("testArchiveWithPassword failed: {e}"));
+            throw(env, format!("testArchiveWithPassword failed: {e}"));
             JString::default()
         }
         Err(_) => {
-            throw(&mut env, "testArchiveWithPassword failed: internal panic");
+            throw(env, "testArchiveWithPassword failed: internal panic");
             JString::default()
         }
     }
@@ -565,13 +596,15 @@ fn password_required_json() -> Result<String> {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_testArchive<'local>(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     archive_str: JString<'local>,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
         let format = format::detect(&archive)?;
         match backend::test_archive(&archive, format, &Limits::default()) {
             Ok(report) => test_report_to_json(&report),
@@ -583,16 +616,16 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_testArchiv
         Ok(Ok(json)) => match env.new_string(json) {
             Ok(s) => s,
             Err(e) => {
-                throw(&mut env, format!("testArchive failed: {e}"));
+                throw(env, format!("testArchive failed: {e}"));
                 JString::default()
             }
         },
         Ok(Err(e)) => {
-            throw(&mut env, format!("testArchive failed: {e}"));
+            throw(env, format!("testArchive failed: {e}"));
             JString::default()
         }
         Err(_) => {
-            throw(&mut env, "testArchive failed: internal panic");
+            throw(env, "testArchive failed: internal panic");
             JString::default()
         }
     }
@@ -713,7 +746,7 @@ fn do_set_entry_meta(
 /// Shared JNI string-result finisher so fd and path variants throw identical
 /// `RuntimeException` shapes with only the `op` label differing.
 fn finish_json_string<'local>(
-    env: &mut JNIEnv<'local>,
+    env: &mut Env<'local>,
     op: &str,
     outcome: std::thread::Result<Result<String>>,
 ) -> JString<'local> {
@@ -739,40 +772,44 @@ fn finish_json_string<'local>(
 /// `extractFd(fd: Int, destDir: String): Int`
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractFd(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     task_id: jlong,
     fd: jint,
     dest_str: JString,
 ) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let archive = fdPath(fd);
-        let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
+        let dest = PathBuf::from(read_string(env, &dest_str)?);
         do_extract(&archive, &dest, None)
     }));
-    finish_int(&mut env, "extractFd", outcome)
+    finish_int(env, "extractFd", outcome)
 }
 
 /// `extractWithPasswordFd(fd: Int, destDir: String, password: ByteArray): Int`
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractWithPasswordFd(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     task_id: jlong,
     fd: jint,
     dest_str: JString,
     password_bytes: JByteArray,
 ) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         let _guard = crate::io_util::TaskGuard::new(task_id as u64);
         let archive = fdPath(fd);
-        let dest = PathBuf::from(read_string(&mut env, &dest_str)?);
-        let password = read_password(&mut env, &password_bytes)?;
+        let dest = PathBuf::from(read_string(env, &dest_str)?);
+        let password = read_password(env, &password_bytes)?;
         let pw = password_str(&password)?;
         do_extract(&archive, &dest, Some(pw))
     }));
-    finish_int(&mut env, "extractWithPasswordFd", outcome)
+    finish_int(env, "extractWithPasswordFd", outcome)
 }
 
 /// `listArchiveDetailedFd(fd: Int): String` (JSON preview)
@@ -780,16 +817,18 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_extractWit
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiveDetailedFd<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     fd: jint,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
         let archive = fdPath(fd);
         do_preview(&archive, None)
     }));
-    finish_json_string(&mut env, "listArchiveDetailedFd", outcome)
+    finish_json_string(env, "listArchiveDetailedFd", outcome)
 }
 
 /// `listArchiveDetailedWithPasswordFd(fd: Int, password: ByteArray): String`
@@ -797,34 +836,38 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiv
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_listArchiveDetailedWithPasswordFd<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     fd: jint,
     password_bytes: JByteArray<'local>,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
         let archive = fdPath(fd);
-        let password = read_password(&mut env, &password_bytes)?;
+        let password = read_password(env, &password_bytes)?;
         let pw = password_str(&password)?;
         do_preview(&archive, Some(pw))
     }));
-    finish_json_string(&mut env, "listArchiveDetailedWithPasswordFd", outcome)
+    finish_json_string(env, "listArchiveDetailedWithPasswordFd", outcome)
 }
 
 /// `testArchiveFd(fd: Int): String` (JSON report)
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_testArchiveFd<'local>(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     fd: jint,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
         let archive = fdPath(fd);
         do_test(&archive, None)
     }));
-    finish_json_string(&mut env, "testArchiveFd", outcome)
+    finish_json_string(env, "testArchiveFd", outcome)
 }
 
 /// `testArchiveWithPasswordFd(fd: Int, password: ByteArray): String`
@@ -832,26 +875,28 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_testArchiv
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_testArchiveWithPasswordFd<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     fd: jint,
     password_bytes: JByteArray<'local>,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
         let archive = fdPath(fd);
-        let password = read_password(&mut env, &password_bytes)?;
+        let password = read_password(env, &password_bytes)?;
         let pw = password_str(&password)?;
         do_test(&archive, Some(pw))
     }));
-    finish_json_string(&mut env, "testArchiveWithPasswordFd", outcome)
+    finish_json_string(env, "testArchiveWithPasswordFd", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_searchArchiveContent<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     archive_str: JString<'local>,
     needle_str: JString<'local>,
@@ -859,11 +904,13 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_searchArch
     max_bytes: jlong,
     password_bytes: JByteArray<'local>,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let needle = read_string(&mut env, &needle_str)?;
-        let password = read_password(&mut env, &password_bytes)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let needle = read_string(env, &needle_str)?;
+        let password = read_password(env, &password_bytes)?;
         let pw = if password.0.is_empty() {
             None
         } else {
@@ -872,19 +919,19 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_searchArch
         do_search(
             &archive,
             &needle,
-            case_sensitive != 0,
+            case_sensitive,
             pw,
             max_bytes.max(0) as u64,
         )
     }));
-    finish_json_string(&mut env, "searchArchiveContent", outcome)
+    finish_json_string(env, "searchArchiveContent", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_searchArchiveContentFd<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    env: EnvUnowned<'local>,
     _class: JClass<'local>,
     fd: jint,
     needle_str: JString<'local>,
@@ -892,11 +939,13 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_searchArch
     max_bytes: jlong,
     password_bytes: JByteArray<'local>,
 ) -> JString<'local> {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<String> {
         clear_cancel();
         let archive = fdPath(fd);
-        let needle = read_string(&mut env, &needle_str)?;
-        let password = read_password(&mut env, &password_bytes)?;
+        let needle = read_string(env, &needle_str)?;
+        let password = read_password(env, &password_bytes)?;
         let pw = if password.0.is_empty() {
             None
         } else {
@@ -905,128 +954,140 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_searchArch
         do_search(
             &archive,
             &needle,
-            case_sensitive != 0,
+            case_sensitive,
             pw,
             max_bytes.max(0) as u64,
         )
     }));
-    finish_json_string(&mut env, "searchArchiveContentFd", outcome)
+    finish_json_string(env, "searchArchiveContentFd", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_deleteArchiveEntries(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     archive_str: JString,
     names_array: JObjectArray,
 ) {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let names = read_strings(&mut env, &names_array)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let names = read_strings(env, &names_array)?;
         let format = format::detect(&archive)?;
         backend::delete_entries(&archive, format, &names)
     }));
-    finish_void(&mut env, "deleteArchiveEntries", outcome)
+    finish_void(env, "deleteArchiveEntries", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_deleteArchiveEntriesWithPassword(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     archive_str: JString,
     names_array: JObjectArray,
     password_bytes: JByteArray,
 ) {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let names = read_strings(&mut env, &names_array)?;
-        let password = read_password(&mut env, &password_bytes)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let names = read_strings(env, &names_array)?;
+        let password = read_password(env, &password_bytes)?;
         let format = format::detect(&archive)?;
         backend::delete_entries_with_password(&archive, format, &names, &password.0)
     }));
-    finish_void(&mut env, "deleteArchiveEntriesWithPassword", outcome)
+    finish_void(env, "deleteArchiveEntriesWithPassword", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_renameArchiveEntry(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     archive_str: JString,
     from_str: JString,
     to_str: JString,
 ) {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let from = read_string(&mut env, &from_str)?;
-        let to = read_string(&mut env, &to_str)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let from = read_string(env, &from_str)?;
+        let to = read_string(env, &to_str)?;
         let format = format::detect(&archive)?;
         backend::rename_entry(&archive, format, &from, &to)
     }));
-    finish_void(&mut env, "renameArchiveEntry", outcome)
+    finish_void(env, "renameArchiveEntry", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_renameArchiveEntryWithPassword(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     archive_str: JString,
     from_str: JString,
     to_str: JString,
     password_bytes: JByteArray,
 ) {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let from = read_string(&mut env, &from_str)?;
-        let to = read_string(&mut env, &to_str)?;
-        let password = read_password(&mut env, &password_bytes)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let from = read_string(env, &from_str)?;
+        let to = read_string(env, &to_str)?;
+        let password = read_password(env, &password_bytes)?;
         let format = format::detect(&archive)?;
         backend::rename_entry_with_password(&archive, format, &from, &to, &password.0)
     }));
-    finish_void(&mut env, "renameArchiveEntryWithPassword", outcome)
+    finish_void(env, "renameArchiveEntryWithPassword", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_addFilesToArchive(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     archive_str: JString,
     src_array: JObjectArray,
     dest_str: JString,
 ) {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let sources = read_sources(&mut env, &src_array)?;
-        let dest_dir = read_string(&mut env, &dest_str)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let sources = read_sources(env, &src_array)?;
+        let dest_dir = read_string(env, &dest_str)?;
         let format = format::detect(&archive)?;
         backend::add_files(&archive, format, &sources, &dest_dir)
     }));
-    finish_void(&mut env, "addFilesToArchive", outcome)
+    finish_void(env, "addFilesToArchive", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_addFilesToArchiveWithPassword(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     archive_str: JString,
     src_array: JObjectArray,
     dest_str: JString,
     password_bytes: JByteArray,
 ) {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let sources = read_sources(&mut env, &src_array)?;
-        let dest_dir = read_string(&mut env, &dest_str)?;
-        let password = read_password(&mut env, &password_bytes)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let sources = read_sources(env, &src_array)?;
+        let dest_dir = read_string(env, &dest_str)?;
+        let password = read_password(env, &password_bytes)?;
         let format = format::detect(&archive)?;
         backend::add_files_with_password(&archive, format, &sources, &dest_dir, &password.0)
     }));
-    finish_void(&mut env, "addFilesToArchiveWithPassword", outcome)
+    finish_void(env, "addFilesToArchiveWithPassword", outcome)
 }
 
 fn meta_args(
@@ -1050,7 +1111,7 @@ fn meta_args(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setArchiveEntryMeta(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     archive_str: JString,
     name_str: JString,
@@ -1058,21 +1119,23 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setArchive
     mode: jint,
     password_bytes: JByteArray,
 ) {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         clear_cancel();
-        let archive = PathBuf::from(read_string(&mut env, &archive_str)?);
-        let name = read_string(&mut env, &name_str)?;
-        let password = read_password(&mut env, &password_bytes)?;
+        let archive = PathBuf::from(read_string(env, &archive_str)?);
+        let name = read_string(env, &name_str)?;
+        let password = read_password(env, &password_bytes)?;
         let pw_str = password_str(&password)?;
         let (modified, mode, pw) = meta_args(modified_millis, mode, pw_str);
         do_set_entry_meta(&archive, &name, modified, mode, pw)
     }));
-    finish_void(&mut env, "setArchiveEntryMeta", outcome)
+    finish_void(env, "setArchiveEntryMeta", outcome)
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setArchiveEntryMetaFd(
-    mut env: JNIEnv,
+    env: EnvUnowned,
     _class: JClass,
     fd: jint,
     name_str: JString,
@@ -1080,14 +1143,16 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setArchive
     mode: jint,
     password_bytes: JByteArray,
 ) {
+    let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
+    let env = guard.borrow_env_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
         clear_cancel();
         let archive = fdPath(fd);
-        let name = read_string(&mut env, &name_str)?;
-        let password = read_password(&mut env, &password_bytes)?;
+        let name = read_string(env, &name_str)?;
+        let password = read_password(env, &password_bytes)?;
         let pw_str = password_str(&password)?;
         let (modified, mode, pw) = meta_args(modified_millis, mode, pw_str);
         do_set_entry_meta(&archive, &name, modified, mode, pw)
     }));
-    finish_void(&mut env, "setArchiveEntryMetaFd", outcome)
+    finish_void(env, "setArchiveEntryMetaFd", outcome)
 }

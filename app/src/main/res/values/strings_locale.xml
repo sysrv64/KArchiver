@@ -1,0 +1,8 @@
+<resources>
+    <string name="settings_language">Language</string>
+    <string name="settings_language_subtitle">App language</string>
+    <string name="language_system">System default</string>
+    <string name="language_en">English</string>
+    <string name="language_ru">Русский</string>
+    <string name="language_zh">中文</string>
+</resources>

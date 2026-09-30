@@ -52,7 +52,6 @@ class ArchiveService : Service() {
         const val DONE_CHANNEL_ID = "archive_done"
         const val NOTIFICATION_ID = 1
         private const val STALL_TIMEOUT_MS = 5L * 60L * 1000L
-        private const val STALL_MESSAGE = "Operation stalled (no progress for 5 minutes)"
 
         fun startExtractTask(
             context: Context,
@@ -303,7 +302,7 @@ class ArchiveService : Service() {
             }
             val stalled = synchronized(lock) { stalledIds.remove(id) }
             if (stalled) {
-                outcome = OpOutcome.Failed(STALL_MESSAGE)
+                outcome = OpOutcome.Failed(getString(R.string.archive_stalled))
             }
             finishTask(spec, outcome)
         } finally {
@@ -538,7 +537,7 @@ class ArchiveService : Service() {
     }
 
     private fun formatSpeed(speed: Double): String {
-        return Formatter.formatShortFileSize(this, speed.toLong()) + "/s"
+        return getString(R.string.archive_speed_format, Formatter.formatShortFileSize(this, speed.toLong()))
     }
 
     private fun formatEta(total: Long, done: Long, speed: Double?): String? {
@@ -551,9 +550,15 @@ class ArchiveService : Service() {
         }
         val seconds = remaining / speed
         return when {
-            seconds < 60.0 -> "less than a minute left"
-            seconds < 3600.0 -> "~" + ((seconds + 59.0).toLong() / 60L) + " min left"
-            else -> "~" + ((seconds + 3599.0).toLong() / 3600L) + " hr left"
+            seconds < 60.0 -> getString(R.string.archive_eta_less_minute)
+            seconds < 3600.0 -> {
+                val mins = ((seconds + 59.0).toLong() / 60L).toInt()
+                resources.getQuantityString(R.plurals.archive_eta_minutes, mins, mins)
+            }
+            else -> {
+                val hrs = ((seconds + 3599.0).toLong() / 3600L).toInt()
+                resources.getQuantityString(R.plurals.archive_eta_hours, hrs, hrs)
+            }
         }
     }
 
@@ -574,7 +579,7 @@ class ArchiveService : Service() {
             out = out.replace("  ", " ")
         }
         if (out.isBlank()) {
-            out = "Operation failed"
+            out = getString(R.string.archive_operation_failed)
         }
         if (out.length > 200) {
             out = out.substring(0, 200)
@@ -626,12 +631,12 @@ class ArchiveService : Service() {
             val manager = getSystemService(NotificationManager::class.java)
             if (manager.getNotificationChannel(CHANNEL_ID) == null) {
                 val channel =
-                    NotificationChannel(CHANNEL_ID, "Archive operations", NotificationManager.IMPORTANCE_LOW)
+                    NotificationChannel(CHANNEL_ID, getString(R.string.archive_notif_channel_ops), NotificationManager.IMPORTANCE_LOW)
                 manager.createNotificationChannel(channel)
             }
             if (manager.getNotificationChannel(DONE_CHANNEL_ID) == null) {
                 val channel =
-                    NotificationChannel(DONE_CHANNEL_ID, "Archive finished", NotificationManager.IMPORTANCE_DEFAULT)
+                    NotificationChannel(DONE_CHANNEL_ID, getString(R.string.archive_notif_channel_done), NotificationManager.IMPORTANCE_DEFAULT)
                 manager.createNotificationChannel(channel)
             }
         }
@@ -641,21 +646,21 @@ class ArchiveService : Service() {
         val active = TaskManager.tasks.value.filter { it.isActive }
         val count = active.size
         val title = when (count) {
-            0 -> "Archive operations"
+            0 -> getString(R.string.archive_notif_channel_ops)
             1 -> active.first().title
-            else -> "$count tasks running"
+            else -> resources.getQuantityString(R.plurals.archive_tasks_running_count, count, count)
         }
         val done = active.sumOf { it.done }
         val total = active.sumOf { it.total }
         val indeterminate = total <= 0L
         val text = if (indeterminate) {
             if (done > 0L) {
-                Formatter.formatShortFileSize(this, done) + " processed"
+                getString(R.string.archive_processed_size, Formatter.formatShortFileSize(this, done))
             } else {
-                "Working"
+                getString(R.string.archive_working)
             }
         } else {
-            Formatter.formatShortFileSize(this, done) + " of " + Formatter.formatShortFileSize(this, total)
+            getString(R.string.archive_progress_of, Formatter.formatShortFileSize(this, done), Formatter.formatShortFileSize(this, total))
         }
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
@@ -677,7 +682,7 @@ class ArchiveService : Service() {
         cancelIntent.action = ACTION_CANCEL
         val pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val cancelPending = PendingIntent.getService(this, 2, cancelIntent, pendingFlags)
-        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel all", cancelPending)
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.archive_notif_cancel_all), cancelPending)
         return builder.build()
     }
 
@@ -695,9 +700,9 @@ class ArchiveService : Service() {
         val title = TaskManager.tasks.value.firstOrNull { it.id == spec.taskId }?.title
             ?: spec.label
         val text = when (outcome) {
-            is OpOutcome.Success -> "Completed successfully"
-            is OpOutcome.Cancelled -> "Cancelled"
-            is OpOutcome.Failed -> "Failed: " + outcome.message
+            is OpOutcome.Success -> getString(R.string.archive_completed)
+            is OpOutcome.Cancelled -> getString(R.string.archive_status_cancelled)
+            is OpOutcome.Failed -> getString(R.string.archive_failed_format, outcome.message)
         }
         val openIntent = Intent(this, MainActivity::class.java)
         openIntent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP

@@ -68,6 +68,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -77,12 +79,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.CompressFormat
 import com.kerneldroid.karchiver.data.ConflictPolicy
 import com.kerneldroid.karchiver.data.FileItem
 import com.kerneldroid.karchiver.data.FormatRegistry
 import com.kerneldroid.karchiver.data.FileSystemRepository
-import com.kerneldroid.karchiver.data.RAR_DISABLED_MESSAGE
 import com.kerneldroid.karchiver.data.isRarArchive
 import com.kerneldroid.karchiver.data.SortBy
 import com.kerneldroid.karchiver.data.nameWithoutArchiveExtension
@@ -160,7 +162,7 @@ fun BrowserScreen(
         if (uri != null && target != null) {
             scope.launch {
                 vm.onTreeGranted(uri, target.id)
-                snackbar.showSnackbar("Access granted for ${target.label}")
+                snackbar.showSnackbar(context.getString(R.string.browser_access_granted, target.label))
             }
         }
     }
@@ -168,8 +170,8 @@ fun BrowserScreen(
     LaunchedEffect(grantRequest) {
         val requested = grantRequest ?: return@LaunchedEffect
         val res = snackbar.showSnackbar(
-            "Direct access failed on ${requested.label}",
-            actionLabel = "Grant access"
+            context.getString(R.string.browser_direct_access_failed, requested.label),
+            actionLabel = context.getString(R.string.browser_grant_access)
         )
         if (res == SnackbarResult.ActionPerformed) {
             grantTarget = requested
@@ -217,7 +219,7 @@ fun BrowserScreen(
 
     fun notifyRarDisabled() {
         scope.launch {
-            val res = snackbar.showSnackbar(RAR_DISABLED_MESSAGE, actionLabel = "Settings")
+            val res = snackbar.showSnackbar(context.getString(R.string.browser_rar_disabled), actionLabel = context.getString(R.string.action_settings))
             if (res == SnackbarResult.ActionPerformed) onOpenSettings()
         }
     }
@@ -269,7 +271,11 @@ fun BrowserScreen(
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 scope.launch {
                     val added = vm.toggleFavorite(path)
-                    snackbar.showSnackbar(if (added) "Added to favorites" else "Removed from favorites")
+                    snackbar.showSnackbar(
+                        context.getString(
+                            if (added) R.string.browser_added_favorites else R.string.browser_removed_favorites
+                        )
+                    )
                 }
             } else {
                 pendingItem = item
@@ -426,9 +432,9 @@ fun BrowserScreen(
             if (state.searchDeep && state.query.isNotBlank()) {
                 Text(
                     text = if (state.searchCapped) {
-                        "Scanned ${state.searchScanned} files · search limit reached"
+                        pluralStringResource(R.plurals.browser_scanned_files_limit, state.searchScanned, state.searchScanned)
                     } else {
-                        "Scanned ${state.searchScanned} files"
+                        pluralStringResource(R.plurals.browser_scanned_files, state.searchScanned, state.searchScanned)
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -502,9 +508,11 @@ fun BrowserScreen(
                             scope.launch {
                                 snackbar.showSnackbar(
                                     if (r.isSuccess) {
-                                        if (vm.state.value.trashEnabled) "Moved to Trash" else "Deleted"
+                                        context.getString(
+                                            if (vm.state.value.trashEnabled) R.string.browser_moved_to_trash else R.string.browser_deleted
+                                        )
                                     } else {
-                                        r.exceptionOrNull()?.message ?: "Delete failed"
+                                        r.exceptionOrNull()?.message ?: context.getString(R.string.browser_delete_failed)
                                     }
                                 )
                             }
@@ -527,7 +535,7 @@ fun BrowserScreen(
                             onProperties = { if (single != null) propsFile = single },
                             onShare = {
                                 shareFiles(context, files).onFailure {
-                                    scope.launch { snackbar.showSnackbar("Cannot share") }
+                                    scope.launch { snackbar.showSnackbar(context.getString(R.string.browser_cannot_share)) }
                                 }
                             },
                             onOpenWith = {
@@ -543,7 +551,11 @@ fun BrowserScreen(
                             onCopyPath = {
                                 copyPaths(context, files, quoteCopyPath)
                                 scope.launch {
-                                    snackbar.showSnackbar(if (files.size == 1) "Path copied" else "Paths copied")
+                                    snackbar.showSnackbar(
+                                        context.getString(
+                                            if (files.size == 1) R.string.browser_path_copied else R.string.browser_paths_copied
+                                        )
+                                    )
                                 }
                             }
                         )
@@ -558,7 +570,11 @@ fun BrowserScreen(
                     count = vm.clipboard?.first?.size ?: 0,
                     onPaste = {
                         vm.paste { r ->
-                            scope.launch { snackbar.showSnackbar(if (r.isSuccess) "Pasted" else "Paste failed") }
+                            scope.launch {
+                                snackbar.showSnackbar(
+                                    context.getString(if (r.isSuccess) R.string.browser_pasted else R.string.browser_paste_failed)
+                                )
+                            }
                         }
                     },
                     onCancel = vm::cancelClipboard
@@ -590,8 +606,10 @@ fun BrowserScreen(
                     vm.renameFile(file, newName) { r ->
                         scope.launch {
                             snackbar.showSnackbar(
-                                if (r.isSuccess) "Renamed to ${r.getOrNull()?.name ?: newName}"
-                                else vm.archiveOpMessage(r.exceptionOrNull(), "Renamed", "Could not rename")
+                                if (r.isSuccess) context.getString(R.string.browser_renamed_to, r.getOrNull()?.name ?: newName)
+                                else context.getString(
+                                    vm.archiveOpMessage(r.exceptionOrNull(), R.string.browser_renamed, R.string.browser_could_not_rename)
+                                )
                             )
                         }
                         if (r.isSuccess) propsFile = null
@@ -602,7 +620,9 @@ fun BrowserScreen(
                     vm.setFileModified(file, millis) { r ->
                         scope.launch {
                             snackbar.showSnackbar(
-                                if (r.isSuccess) "Date updated" else "Could not change date"
+                                context.getString(
+                                    if (r.isSuccess) R.string.browser_date_updated else R.string.browser_could_not_change_date
+                                )
                             )
                         }
                         onDone(r)
@@ -611,7 +631,11 @@ fun BrowserScreen(
                 onChmodRequest = { mode, onDone ->
                     vm.chmodFile(file, mode) { r ->
                         scope.launch {
-                            snackbar.showSnackbar(if (r.isSuccess) "Permissions updated" else "Could not set permissions")
+                            snackbar.showSnackbar(
+                                context.getString(
+                                    if (r.isSuccess) R.string.browser_permissions_updated else R.string.browser_could_not_set_permissions
+                                )
+                            )
                         }
                         onDone(r)
                     }
@@ -632,7 +656,7 @@ fun BrowserScreen(
                 val mime = if (openWithTarget.isDirectory) "*/*"
                 else FormatRegistry.forExtension(openWithTarget.extension).mime
                 launchOpenWith(context, openWithTarget, mime, app).onFailure {
-                    scope.launch { snackbar.showSnackbar("Cannot open with this app") }
+                    scope.launch { snackbar.showSnackbar(context.getString(R.string.browser_cannot_open_with)) }
                 }
                 openWithFile = null
             }
@@ -646,17 +670,17 @@ fun BrowserScreen(
             onDismissRequest = { vm.dismissConflict() },
             icon = { Icon(Icons.Filled.ContentCopy, null) },
             title = {
-                Text(if (itemCount == 1) "An item already exists" else "$itemCount items already exist")
+                Text(pluralStringResource(R.plurals.browser_conflict_items_exist, itemCount, itemCount))
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = "The destination already contains:",
+                        text = stringResource(R.string.browser_destination_contains),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     request.names.take(5).forEach { name ->
                         Text(
-                            text = "• $name",
+                            text = stringResource(R.string.browser_bullet_item, name),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -665,7 +689,7 @@ fun BrowserScreen(
                     }
                     if (itemCount > 5) {
                         Text(
-                            text = "and ${itemCount - 5} more",
+                            text = pluralStringResource(R.plurals.browser_and_more, itemCount - 5, itemCount - 5),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -675,18 +699,18 @@ fun BrowserScreen(
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(onClick = { vm.resolveConflict(ConflictPolicy.SKIP) }) {
-                        Text("Skip")
+                        Text(stringResource(R.string.word_skip))
                     }
                     TextButton(onClick = { vm.resolveConflict(ConflictPolicy.KEEP_BOTH) }) {
-                        Text("Keep both")
+                        Text(stringResource(R.string.word_keep_both))
                     }
                     TextButton(onClick = { vm.resolveConflict(ConflictPolicy.REPLACE) }) {
-                        Text("Replace")
+                        Text(stringResource(R.string.word_replace))
                     }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { vm.dismissConflict() }) { Text("Cancel") }
+                TextButton(onClick = { vm.dismissConflict() }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }
@@ -698,16 +722,19 @@ fun BrowserScreen(
             onDismissRequest = { showDeleteConfirm = false },
             title = {
                 Text(
-                    when {
-                        trash && count == 1 -> "Move 1 item to Trash?"
-                        trash -> "Move $count items to Trash?"
-                        count == 1 -> "Delete 1 item?"
-                        else -> "Delete $count items?"
+                    if (trash) {
+                        pluralStringResource(R.plurals.browser_move_to_trash_title, count, count)
+                    } else {
+                        pluralStringResource(R.plurals.browser_delete_title, count, count)
                     }
                 )
             },
             text = {
-                Text(if (trash) "You can restore them from Trash later." else "This cannot be undone.")
+                Text(
+                    stringResource(
+                        if (trash) R.string.browser_trash_restore_hint else R.string.browser_delete_irreversible
+                    )
+                )
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -716,31 +743,33 @@ fun BrowserScreen(
                         scope.launch {
                             snackbar.showSnackbar(
                                 if (r.isSuccess) {
-                                    if (trash) "Moved to Trash" else "Deleted"
+                                    context.getString(if (trash) R.string.browser_moved_to_trash else R.string.browser_deleted)
                                 } else {
-                                    r.exceptionOrNull()?.message ?: "Delete failed"
+                                    r.exceptionOrNull()?.message ?: context.getString(R.string.browser_delete_failed)
                                 }
                             )
                         }
                     }
-                }) { Text(if (trash) "Move" else "Delete") }
+                }) { Text(stringResource(if (trash) R.string.action_move else R.string.action_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }
 
     if (showCompressDialog) {
-        var name by rememberSaveable { mutableStateOf("archive.zip") }
+        val defaultArchiveName = stringResource(R.string.browser_default_archive_name)
+        val defaultArchiveBase = stringResource(R.string.browser_default_archive_base)
+        var name by rememberSaveable { mutableStateOf(defaultArchiveName) }
         var password by remember { mutableStateOf("") }
         var format by remember { mutableStateOf(CompressFormat.ZIP) }
         val formatScroll = rememberScrollState()
-        val finalName = normalizeArchiveName(name.ifBlank { "archive" }, format)
+        val finalName = normalizeArchiveName(name.ifBlank { defaultArchiveBase }, format)
         AlertDialog(
             onDismissRequest = { showCompressDialog = false },
             icon = { Icon(Icons.Filled.Archive, null) },
-            title = { Text("Compress to archive") },
+            title = { Text(stringResource(R.string.browser_compress_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
@@ -752,7 +781,7 @@ fun BrowserScreen(
                                 selected = format == entry,
                                 onClick = {
                                     format = entry
-                                    name = normalizeArchiveName(name.ifBlank { "archive" }, entry)
+                                    name = normalizeArchiveName(name.ifBlank { defaultArchiveBase }, entry)
                                 },
                                 label = { Text(entry.label) }
                             )
@@ -761,36 +790,36 @@ fun BrowserScreen(
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Archive name") },
+                        label = { Text(stringResource(R.string.browser_archive_name)) },
                         singleLine = true
                     )
                     PasswordField(
                         value = password,
                         onValueChange = { password = it },
-                        label = "Password (optional)"
+                        label = stringResource(R.string.browser_password_optional)
                     )
                     if (format.supportsPassword) {
                         Text(
-                            "Password protection uses AES-256 for ZIP and 7Z.",
+                            stringResource(R.string.browser_password_aes_note),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
                         Text(
-                            "Password is not supported for ${format.label} archives.",
+                            stringResource(R.string.browser_password_unsupported, format.label),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     if (!format.supportsPassword && password.isNotEmpty()) {
                         Text(
-                            "Compression with a password will fail for ${format.label}. Clear the password or pick ZIP or 7Z.",
+                            stringResource(R.string.browser_password_will_fail, format.label),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.error
                         )
                     }
                     Text(
-                        "Will be created: ${state.currentDir.absolutePath}/$finalName",
+                        stringResource(R.string.browser_will_be_created, "${state.currentDir.absolutePath}/$finalName"),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -804,12 +833,16 @@ fun BrowserScreen(
                     showCompressDialog = false
                     vm.startCompress(context, chosenName, chosenFormat, chosenPassword) { r ->
                         scope.launch {
-                            snackbar.showSnackbar(vm.archiveOpMessage(r.exceptionOrNull(), "Archive created", "Compression failed"))
+                            snackbar.showSnackbar(
+                                context.getString(
+                                    vm.archiveOpMessage(r.exceptionOrNull(), R.string.browser_archive_created, R.string.browser_compression_failed)
+                                )
+                            )
                         }
                     }
-                }) { Text("Compress") }
+                }) { Text(stringResource(R.string.action_compress)) }
             },
-            dismissButton = { TextButton(onClick = { showCompressDialog = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showCompressDialog = false }) { Text(stringResource(R.string.action_cancel)) } }
         )
     }
 
@@ -827,23 +860,23 @@ fun BrowserScreen(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("Destination", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.browser_destination), style = MaterialTheme.typography.labelLarge)
                     ExtractDestRow(
                         selected = extractDest == ExtractDest.HERE,
-                        title = "Here",
+                        title = stringResource(R.string.browser_extract_here),
                         subtitle = file.parentFile?.absolutePath ?: "",
                         onSelect = { extractDest = ExtractDest.HERE }
                     )
                     ExtractDestRow(
                         selected = extractDest == ExtractDest.NEW_FOLDER,
-                        title = "New folder",
+                        title = stringResource(R.string.browser_new_folder),
                         subtitle = newFolder.absolutePath,
                         onSelect = { extractDest = ExtractDest.NEW_FOLDER }
                     )
                     ExtractDestRow(
                         selected = extractDest == ExtractDest.CUSTOM,
-                        title = "Choose folder",
-                        subtitle = extractCustomDir?.absolutePath ?: "Tap to pick a folder",
+                        title = stringResource(R.string.browser_choose_folder),
+                        subtitle = extractCustomDir?.absolutePath ?: stringResource(R.string.browser_tap_to_pick_folder),
                         onSelect = {
                             extractDest = ExtractDest.CUSTOM
                             showFolderPicker = true
@@ -859,13 +892,13 @@ fun BrowserScreen(
                     ) {
                         Checkbox(checked = extractDeleteAfter, onCheckedChange = { extractDeleteAfter = it })
                         Spacer(Modifier.width(8.dp))
-                        Text("Delete archive after extraction")
+                        Text(stringResource(R.string.browser_delete_after_extraction))
                     }
                     Spacer(Modifier.height(4.dp))
                     PasswordField(
                         value = password,
                         onValueChange = { password = it },
-                        label = "Password (if required)"
+                        label = stringResource(R.string.browser_password_if_required)
                     )
                 }
             },
@@ -886,23 +919,27 @@ fun BrowserScreen(
                                 vm.deleteFile(file) { }
                             }
                             scope.launch {
-                                snackbar.showSnackbar(vm.archiveOpMessage(r.exceptionOrNull(), "Extracted", "Extraction failed"))
+                                snackbar.showSnackbar(
+                                    context.getString(
+                                        vm.archiveOpMessage(r.exceptionOrNull(), R.string.browser_extracted, R.string.browser_extraction_failed)
+                                    )
+                                )
                             }
                         }
                     }
-                ) { Text("Extract") }
+                ) { Text(stringResource(R.string.action_extract)) }
             },
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(onClick = {
                         pendingExtract = null
                         vm.openPreview(file)
-                    }) { Text("Preview") }
+                    }) { Text(stringResource(R.string.browser_preview)) }
                     TextButton(onClick = {
                         pendingExtract = null
                         vm.verifyArchive(file)
-                    }) { Text("Verify") }
-                    TextButton(onClick = { pendingExtract = null }) { Text("Cancel") }
+                    }) { Text(stringResource(R.string.browser_verify)) }
+                    TextButton(onClick = { pendingExtract = null }) { Text(stringResource(R.string.action_cancel)) }
                 }
             }
         )
@@ -945,20 +982,20 @@ fun BrowserScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 if (FormatRegistry.isArchive(file.extension)) {
-                    SheetActionRow(Icons.Filled.Visibility, "Preview") {
+                    SheetActionRow(Icons.Filled.Visibility, stringResource(R.string.browser_preview)) {
                         onExternalHandled()
                         vm.openPreview(file)
                     }
-                    SheetActionRow(Icons.Filled.FolderOpen, "Extract") {
+                    SheetActionRow(Icons.Filled.FolderOpen, stringResource(R.string.action_extract)) {
                         pendingExtract = file
                         onExternalHandled()
                     }
-                    SheetActionRow(Icons.Filled.Verified, "Verify") {
+                    SheetActionRow(Icons.Filled.Verified, stringResource(R.string.browser_verify)) {
                         onExternalHandled()
                         vm.verifyArchive(file)
                     }
                 }
-                SheetActionRow(Icons.Filled.OpenInNew, "Open with") {
+                SheetActionRow(Icons.Filled.OpenInNew, stringResource(R.string.action_open_with)) {
                     scope.launch {
                         val mime = FormatRegistry.forExtension(file.extension).mime
                         openWithApps = queryOpenWith(context, file, mime)
@@ -966,15 +1003,15 @@ fun BrowserScreen(
                     }
                     onExternalHandled()
                 }
-                SheetActionRow(Icons.Filled.Share, "Share") {
+                SheetActionRow(Icons.Filled.Share, stringResource(R.string.action_share)) {
                     shareFiles(context, listOf(file))
                     onExternalHandled()
                 }
-                SheetActionRow(Icons.Filled.Info, "Properties") {
+                SheetActionRow(Icons.Filled.Info, stringResource(R.string.action_properties)) {
                     propsFile = file
                     onExternalHandled()
                 }
-                SheetActionRow(Icons.Filled.ContentCopy, "Copy path") {
+                SheetActionRow(Icons.Filled.ContentCopy, stringResource(R.string.browser_copy_path)) {
                     copyPaths(context, listOf(file), quoteCopyPath)
                     onExternalHandled()
                 }
@@ -995,8 +1032,10 @@ fun BrowserScreen(
 
     LaunchedEffect(preview.error) {
         val err = preview.error
-        if (preview.file != null && err != null && err != "Password required" && err != "Wrong password") {
-            snackbar.showSnackbar(err)
+        if (preview.file != null && err != null &&
+            err != R.string.browser_password_required && err != R.string.browser_wrong_password
+        ) {
+            snackbar.showSnackbar(context.getString(err))
         }
     }
 
@@ -1006,7 +1045,7 @@ fun BrowserScreen(
     if (verifyFile != null && !verify.isLoading && (verifyReport != null || verifyError != null)) {
         var verifyPassword by remember(verifyFile.absolutePath, verify.passwordUsed) { mutableStateOf("") }
         val needsVerifyPassword = (verifyReport?.passwordRequired == true) ||
-            verifyError == "Password required" || verifyError == "Wrong password"
+            verifyError == R.string.browser_password_required || verifyError == R.string.browser_wrong_password
         AlertDialog(
             onDismissRequest = vm::closeVerify,
             icon = {
@@ -1018,15 +1057,16 @@ fun BrowserScreen(
             title = { Text(verifyFile.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             text = {
                 when {
-                    verifyError != null && !needsVerifyPassword -> Text(verifyError)
-                    verifyReport == null && !needsVerifyPassword -> Text("Verification failed")
-                    verifyReport != null && !verifyReport.passwordRequired && verifyReport.ok -> Text("Archive is OK (${verifyReport.entries} entries)")
+                    verifyError != null && !needsVerifyPassword -> Text(stringResource(verifyError))
+                    verifyReport == null && !needsVerifyPassword -> Text(stringResource(R.string.browser_verification_failed))
+                    verifyReport != null && !verifyReport.passwordRequired && verifyReport.ok ->
+                        Text(pluralStringResource(R.plurals.browser_archive_ok, verifyReport.entries, verifyReport.entries))
                     verifyReport != null && !verifyReport.passwordRequired -> {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Archive is damaged (${verifyReport.failures.size} of ${verifyReport.entries} entries failed)")
+                            Text(stringResource(R.string.browser_archive_damaged, verifyReport.failures.size, verifyReport.entries))
                             verifyReport.failures.take(5).forEach { failure ->
                                 Text(
-                                    "${failure.name}: ${failure.reason}",
+                                    stringResource(R.string.browser_failure_line, failure.name, failure.reason),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 2,
@@ -1035,7 +1075,11 @@ fun BrowserScreen(
                             }
                             if (verifyReport.failures.size > 5) {
                                 Text(
-                                    "...and ${verifyReport.failures.size - 5} more",
+                                    pluralStringResource(
+                                        R.plurals.browser_and_more_failures,
+                                        verifyReport.failures.size - 5,
+                                        verifyReport.failures.size - 5
+                                    ),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1045,15 +1089,15 @@ fun BrowserScreen(
                     else -> {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
-                                text = verifyError ?: "Password required",
+                                text = stringResource(verifyError ?: R.string.browser_password_required),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (verifyError == "Wrong password") MaterialTheme.colorScheme.error
+                                color = if (verifyError == R.string.browser_wrong_password) MaterialTheme.colorScheme.error
                                 else MaterialTheme.colorScheme.onSurface
                             )
                             PasswordField(
                                 value = verifyPassword,
                                 onValueChange = { verifyPassword = it },
-                                label = "Password"
+                                label = stringResource(R.string.word_password)
                             )
                             Button(
                                 onClick = {
@@ -1062,13 +1106,13 @@ fun BrowserScreen(
                                     vm.verifyArchive(verifyFile, entered)
                                 },
                                 enabled = verifyPassword.isNotEmpty()
-                            ) { Text("Verify with password") }
+                            ) { Text(stringResource(R.string.browser_verify_with_password)) }
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = vm::closeVerify) { Text("OK") }
+                TextButton(onClick = vm::closeVerify) { Text(stringResource(R.string.action_ok)) }
             }
         )
     }
@@ -1081,7 +1125,13 @@ fun BrowserScreen(
             val percent = (fraction * 100).toInt()
             AlertDialog(
                 onDismissRequest = {},
-                title = { Text(if (op.kind == TaskKind.COMPRESS) "Compressing archive" else "Extracting archive") },
+                title = {
+                    Text(
+                        stringResource(
+                            if (op.kind == TaskKind.COMPRESS) R.string.browser_compressing else R.string.browser_extracting
+                        )
+                    )
+                },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(op.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1091,42 +1141,48 @@ fun BrowserScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Text(
-                                Formatter.formatShortFileSize(context, op.done) + " / " +
-                                    Formatter.formatShortFileSize(context, op.total) + " • " + percent + "%"
+                                stringResource(
+                                    R.string.browser_progress_of,
+                                    Formatter.formatShortFileSize(context, op.done),
+                                    Formatter.formatShortFileSize(context, op.total),
+                                    percent
+                                )
                             )
                         } else {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            Text("Working...")
+                            Text(stringResource(R.string.browser_working))
                         }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { vm.hideProgressDialog() }) { Text("Hide") }
+                    TextButton(onClick = { vm.hideProgressDialog() }) { Text(stringResource(R.string.browser_hide)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { vm.cancelArchiveOp(context) }) { Text("Cancel") }
+                    TextButton(onClick = { vm.cancelArchiveOp(context) }) { Text(stringResource(R.string.action_cancel)) }
                 }
             )
         } else {
             AlertDialog(
                 onDismissRequest = {},
-                title = { Text("Working with archive") },
+                title = { Text(stringResource(R.string.browser_working_with_archive)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        Text("Verifying archive...")
+                        Text(stringResource(R.string.browser_verifying_archive))
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { vm.cancelArchiveOp() }) { Text("Cancel") }
+                    TextButton(onClick = { vm.cancelArchiveOp() }) { Text(stringResource(R.string.action_cancel)) }
                 }
             )
         }
     }
 
     createKind?.let { kind ->
+        val defaultFolderName = stringResource(R.string.browser_new_folder)
+        val defaultFileName = stringResource(R.string.browser_new_file_name)
         var name by rememberSaveable(kind) {
-            mutableStateOf(if (kind == CreateKind.FOLDER) "New folder" else "New file.txt")
+            mutableStateOf(if (kind == CreateKind.FOLDER) defaultFolderName else defaultFileName)
         }
         AlertDialog(
             onDismissRequest = { createKind = null },
@@ -1136,12 +1192,18 @@ fun BrowserScreen(
                     null
                 )
             },
-            title = { Text(if (kind == CreateKind.FOLDER) "New folder" else "New file") },
+            title = {
+                Text(
+                    stringResource(
+                        if (kind == CreateKind.FOLDER) R.string.browser_new_folder else R.string.browser_new_file
+                    )
+                )
+            },
             text = {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.word_name)) },
                     singleLine = true
                 )
             },
@@ -1151,16 +1213,28 @@ fun BrowserScreen(
                     createKind = null
                     if (target == CreateKind.FOLDER) {
                         vm.createFolder(name) { r ->
-                            scope.launch { snackbar.showSnackbar(if (r.isSuccess) "Folder created" else "Could not create folder") }
+                            scope.launch {
+                                snackbar.showSnackbar(
+                                    context.getString(
+                                        if (r.isSuccess) R.string.browser_folder_created else R.string.browser_create_folder_failed
+                                    )
+                                )
+                            }
                         }
                     } else {
                         vm.createFile(name) { r ->
-                            scope.launch { snackbar.showSnackbar(if (r.isSuccess) "File created" else "Could not create file") }
+                            scope.launch {
+                                snackbar.showSnackbar(
+                                    context.getString(
+                                        if (r.isSuccess) R.string.browser_file_created else R.string.browser_create_file_failed
+                                    )
+                                )
+                            }
                         }
                     }
-                }) { Text("Create") }
+                }) { Text(stringResource(R.string.browser_create)) }
             },
-            dismissButton = { TextButton(onClick = { createKind = null }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { createKind = null }) { Text(stringResource(R.string.action_cancel)) } }
         )
     }
 }
@@ -1195,7 +1269,7 @@ private fun ScrollTopButton(visible: Boolean, onClick: () -> Unit) {
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
             contentColor = MaterialTheme.colorScheme.onTertiaryContainer
         ) {
-            Icon(Icons.Filled.KeyboardArrowUp, "Scroll to top")
+            Icon(Icons.Filled.KeyboardArrowUp, stringResource(R.string.browser_scroll_to_top))
         }
     }
 }
@@ -1221,19 +1295,19 @@ private fun CreateFabMenu(
                     animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
                     label = "fabRotation"
                 )
-                Icon(Icons.Filled.Add, "Create", Modifier.rotate(rotation))
+                Icon(Icons.Filled.Add, stringResource(R.string.browser_create), Modifier.rotate(rotation))
             }
         }
     ) {
         FloatingActionButtonMenuItem(
             onClick = { onExpandedChange(false); onCreateFolder() },
             icon = { Icon(Icons.Filled.CreateNewFolder, null) },
-            text = { Text("New folder") }
+            text = { Text(stringResource(R.string.browser_new_folder)) }
         )
         FloatingActionButtonMenuItem(
             onClick = { onExpandedChange(false); onCreateFile() },
             icon = { Icon(Icons.AutoMirrored.Filled.NoteAdd, null) },
-            text = { Text("New file") }
+            text = { Text(stringResource(R.string.browser_new_file)) }
         )
     }
 }
@@ -1248,12 +1322,12 @@ private fun VolumePickerDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Filled.Storage, null) },
-        title = { Text("Storage volumes") },
+        title = { Text(stringResource(R.string.browser_storage_volumes)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (volumes.isEmpty()) {
                     Text(
-                        "No volumes found",
+                        stringResource(R.string.browser_no_volumes),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1264,7 +1338,7 @@ private fun VolumePickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) }
         }
     )
 }
@@ -1337,7 +1411,7 @@ private fun BrowserTopBar(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "$itemCount items",
+                    text = pluralStringResource(R.plurals.browser_item_count, itemCount, itemCount),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
@@ -1347,18 +1421,19 @@ private fun BrowserTopBar(
         navigationIcon = {
             when {
                 canGoUp -> IconButton(onClick = onNavigateUp) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.browser_up))
                 }
                 else -> IconButton(onClick = onOpenDrawer) {
-                    Icon(Icons.Filled.Menu, "Menu")
+                    Icon(Icons.Filled.Menu, stringResource(R.string.browser_menu))
                 }
             }
         },
         actions = {
             if (showProgress) {
+                val showProgressDescription = stringResource(R.string.browser_show_progress)
                 IconButton(
                     onClick = onShowProgress,
-                    modifier = Modifier.semantics { contentDescription = "Show progress" }
+                    modifier = Modifier.semantics { contentDescription = showProgressDescription }
                 ) {
                     if (progressDeterminate) {
                         CircularProgressIndicator(
@@ -1374,8 +1449,8 @@ private fun BrowserTopBar(
                     }
                 }
             }
-            IconButton(onClick = onToggleSearch) { Icon(Icons.Filled.Search, "Search") }
-            IconButton(onClick = onOpenSort) { Icon(Icons.Filled.SortByAlpha, "Sort and view") }
+            IconButton(onClick = onToggleSearch) { Icon(Icons.Filled.Search, stringResource(R.string.action_search)) }
+            IconButton(onClick = onOpenSort) { Icon(Icons.Filled.SortByAlpha, stringResource(R.string.browser_sort_and_view)) }
         }
     )
 }
@@ -1393,15 +1468,15 @@ internal fun SelectionTopBar(
             scrolledContainerColor = Color.Transparent
         ),
         navigationIcon = {
-            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Cancel") }
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, stringResource(R.string.action_cancel)) }
         },
-        title = { Text("Selected: $count", style = MaterialTheme.typography.titleLarge) },
+        title = { Text(stringResource(R.string.browser_selected_count, count), style = MaterialTheme.typography.titleLarge) },
         actions = {
             IconButton(onClick = onSelectAll) {
                 if (allSelected) {
-                    Icon(Icons.Filled.Deselect, "Deselect all")
+                    Icon(Icons.Filled.Deselect, stringResource(R.string.browser_deselect_all))
                 } else {
-                    Icon(Icons.Filled.SelectAll, "Select all")
+                    Icon(Icons.Filled.SelectAll, stringResource(R.string.action_select_all))
                 }
             }
         }
@@ -1416,7 +1491,11 @@ internal fun Breadcrumbs(
     onNavigate: (File) -> Unit,
     onOpenVolumes: () -> Unit = {}
 ) {
-    val segments = remember(current, volumes, systemBrowsing) { ancestorsOf(current, volumes, systemBrowsing) }
+    val systemLabel = stringResource(R.string.browser_system)
+    val internalStorageLabel = stringResource(R.string.browser_internal_storage)
+    val segments = remember(current, volumes, systemBrowsing, systemLabel, internalStorageLabel) {
+        ancestorsOf(current, volumes, systemBrowsing, systemLabel, internalStorageLabel)
+    }
     if (segments.size <= 1) return
     val scroll = rememberScrollState()
     LaunchedEffect(current.absolutePath) { scroll.scrollTo(scroll.maxValue) }
@@ -1728,7 +1807,7 @@ private fun ParentFolderRow(
         },
         supportingContent = {
             Text(
-                "Parent folder",
+                stringResource(R.string.browser_parent_folder),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1744,7 +1823,7 @@ private fun ParentFolderRow(
         }
     ) {
         Text(
-            "..",
+            stringResource(R.string.browser_parent_folder_symbol),
             style = MaterialTheme.typography.titleMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1786,9 +1865,9 @@ private fun ParentFolderCard(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Text("..", style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.browser_parent_folder_symbol), style = MaterialTheme.typography.labelMedium)
             Text(
-                "Parent folder",
+                stringResource(R.string.browser_parent_folder),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -1854,14 +1933,14 @@ internal fun FileRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (favorite) {
                         Icon(
-                            Icons.Filled.Star, "Favorite",
+                            Icons.Filled.Star, stringResource(R.string.browser_favorite),
                             tint = MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.size(18.dp)
                         )
                     }
                 when {
                     selected -> Icon(
-                        Icons.Filled.CheckCircle, "Selected",
+                        Icons.Filled.CheckCircle, stringResource(R.string.browser_selected),
                         tint = MaterialTheme.colorScheme.primary
                     )
                     item.isDirectory -> Icon(
@@ -1939,7 +2018,7 @@ private fun FileGridCard(
                 }
             )
             Text(
-                item.snippet ?: (if (item.isDirectory) "Folder" else item.extension.uppercase()),
+                item.snippet ?: (if (item.isDirectory) stringResource(R.string.word_folder) else item.extension.uppercase()),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -1947,13 +2026,13 @@ private fun FileGridCard(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
             if (selected) {
-                Icon(Icons.Filled.CheckCircle, "Selected", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Filled.CheckCircle, stringResource(R.string.browser_selected), tint = MaterialTheme.colorScheme.primary)
             }
         }
     }
     if (favorite) {
         Icon(
-            Icons.Filled.Star, "Favorite",
+            Icons.Filled.Star, stringResource(R.string.browser_favorite),
             tint = MaterialTheme.colorScheme.tertiary,
             modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(14.dp)
         )
@@ -1989,12 +2068,12 @@ internal fun SelectionBottomBar(
             expandedShadowElevation = 6.dp,
             collapsedShadowElevation = 6.dp,
             content = {
-                IconButton(onClick = onCopy) { Icon(Icons.Filled.ContentCopy, "Copy") }
-                IconButton(onClick = onCut) { Icon(Icons.Filled.ContentCut, "Cut") }
+                IconButton(onClick = onCopy) { Icon(Icons.Filled.ContentCopy, stringResource(R.string.action_copy)) }
+                IconButton(onClick = onCut) { Icon(Icons.Filled.ContentCut, stringResource(R.string.action_cut)) }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Filled.Delete, stringResource(R.string.action_delete), tint = MaterialTheme.colorScheme.error)
                 }
-                IconButton(onClick = onCompress) { Icon(Icons.Filled.Archive, "Compress") }
+                IconButton(onClick = onCompress) { Icon(Icons.Filled.Archive, stringResource(R.string.action_compress)) }
             },
             trailingContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2006,13 +2085,13 @@ internal fun SelectionBottomBar(
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         ) {
-                            Icon(Icons.Filled.FolderOpen, "Extract")
+                            Icon(Icons.Filled.FolderOpen, stringResource(R.string.action_extract))
                         }
                     }
                     if (onOpenOverflow != null) {
                         Box {
                             IconButton(onClick = onOpenOverflow) {
-                                Icon(Icons.Filled.MoreVert, "More actions")
+                                Icon(Icons.Filled.MoreVert, stringResource(R.string.browser_more_actions))
                             }
                             overflowContent?.invoke()
                         }
@@ -2054,10 +2133,10 @@ private fun ClipboardFloatingBar(
                 ) {
                     Icon(Icons.Filled.ContentPaste, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Paste ($count)")
+                    Text(stringResource(R.string.browser_paste_count, count))
                 }
                 IconButton(onClick = onCancel, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.Close, "Cancel", Modifier.size(18.dp))
+                    Icon(Icons.Filled.Close, stringResource(R.string.action_cancel), Modifier.size(18.dp))
                 }
             }
         }
@@ -2129,7 +2208,7 @@ private fun FolderPickerDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Filled.FolderOpen, null) },
-        title = { Text("Choose folder", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        title = { Text(stringResource(R.string.browser_choose_folder), maxLines = 1, overflow = TextOverflow.Ellipsis) },
         text = {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2137,7 +2216,7 @@ private fun FolderPickerDialog(
                         onClick = { current.parentFile?.let { current = it } },
                         enabled = current.parentFile != null
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.browser_up))
                     }
                     Text(
                         current.absolutePath,
@@ -2151,7 +2230,7 @@ private fun FolderPickerDialog(
                 HorizontalDivider()
                 if (dirs.isEmpty()) {
                     Text(
-                        "No subfolders",
+                        stringResource(R.string.browser_no_subfolders),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 16.dp)
@@ -2175,8 +2254,8 @@ private fun FolderPickerDialog(
                 }
             }
         },
-        confirmButton = { Button(onClick = { onPick(current) }) { Text("Select this folder") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = { Button(onClick = { onPick(current) }) { Text(stringResource(R.string.browser_select_this_folder)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } }
     )
 }
 
@@ -2190,7 +2269,7 @@ private fun SortSheet(state: BrowserUiState, vm: BrowserViewModel, onDismiss: ()
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Sort and view", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.browser_sort_and_view), style = MaterialTheme.typography.titleLarge)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 SortBy.entries.forEachIndexed { index, sort ->
                     SegmentedButton(
@@ -2207,31 +2286,31 @@ private fun SortSheet(state: BrowserUiState, vm: BrowserViewModel, onDismiss: ()
                     onClick = { vm.setAscending(true) },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                     icon = { Icon(Icons.Filled.ArrowUpward, null) },
-                    label = { Text("Ascending", maxLines = 1) }
+                    label = { Text(stringResource(R.string.browser_sort_ascending), maxLines = 1) }
                 )
                 SegmentedButton(
                     selected = !state.ascending,
                     onClick = { vm.setAscending(false) },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     icon = { Icon(Icons.Filled.ArrowDownward, null) },
-                    label = { Text("Descending", maxLines = 1) }
+                    label = { Text(stringResource(R.string.browser_sort_descending), maxLines = 1) }
                 )
             }
-            Text("View", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.browser_view), style = MaterialTheme.typography.titleMedium)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 SegmentedButton(
                     selected = state.viewMode == ViewMode.LIST,
                     onClick = { vm.setViewMode(ViewMode.LIST) },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                     icon = { Icon(Icons.Filled.ViewAgenda, null) },
-                    label = { Text("List") }
+                    label = { Text(stringResource(R.string.view_list)) }
                 )
                 SegmentedButton(
                     selected = state.viewMode == ViewMode.GRID,
                     onClick = { vm.setViewMode(ViewMode.GRID) },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     icon = { Icon(Icons.Filled.GridView, null) },
-                    label = { Text("Grid") }
+                    label = { Text(stringResource(R.string.view_grid)) }
                 )
             }
         }
@@ -2242,20 +2321,20 @@ private fun SortSheet(state: BrowserUiState, vm: BrowserViewModel, onDismiss: ()
 private fun PasswordField(
     value: String,
     onValueChange: (String) -> Unit,
-    label: String = "Password"
+    label: String? = null
 ) {
     var visible by remember { mutableStateOf(false) }
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text(label) },
+        label = { Text(label ?: stringResource(R.string.word_password)) },
         singleLine = true,
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
             IconButton(onClick = { visible = !visible }) {
                 Icon(
                     if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                    if (visible) "Hide password" else "Show password"
+                    if (visible) stringResource(R.string.browser_hide_password) else stringResource(R.string.browser_show_password)
                 )
             }
         },
@@ -2283,7 +2362,7 @@ private fun PreviewSheet(
             onExitToFolder = onExitToFolder
         )
     }
-    val needsPassword = preview.error == "Password required" || preview.error == "Wrong password" ||
+    val needsPassword = preview.error == R.string.browser_password_required || preview.error == R.string.browser_wrong_password ||
         (preview.listing != null && preview.listing.encrypted && preview.passwordUsed.isEmpty())
     if (needsPassword) {
         var password by remember(archive.absolutePath) { mutableStateOf("") }
@@ -2294,15 +2373,18 @@ private fun PreviewSheet(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = if (preview.error == "Wrong password") "Wrong password" else "Password required",
+                        text = stringResource(
+                            if (preview.error == R.string.browser_wrong_password) R.string.browser_wrong_password
+                            else R.string.browser_password_required
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = if (preview.error == "Wrong password") MaterialTheme.colorScheme.error
+                        color = if (preview.error == R.string.browser_wrong_password) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     PasswordField(
                         value = password,
                         onValueChange = { password = it },
-                        label = "Password"
+                        label = stringResource(R.string.word_password)
                     )
                 }
             },
@@ -2314,9 +2396,9 @@ private fun PreviewSheet(
                         onUnlock(entered)
                     },
                     enabled = password.isNotEmpty()
-                ) { Text("Unlock") }
+                ) { Text(stringResource(R.string.browser_unlock)) }
             },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } }
         )
     }
 }
@@ -2341,7 +2423,7 @@ private fun EmptyState(query: String) {
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                if (query.isBlank()) "Folder is empty" else "Nothing found",
+                stringResource(if (query.isBlank()) R.string.empty_folder else R.string.browser_nothing_found),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -2352,13 +2434,15 @@ private fun EmptyState(query: String) {
 private fun ancestorsOf(
     current: File,
     volumes: List<AppVolume> = emptyList(),
-    systemBrowsing: Boolean = false
+    systemBrowsing: Boolean = false,
+    systemLabel: String,
+    internalStorageLabel: String
 ): List<Pair<File, String>> {
     val internalRoot = Environment.getExternalStorageDirectory()
     val volumeRoot = deepestVolumeFor(current, volumes)
     val systemRoot = File("/")
     val root = if (systemBrowsing) systemRoot else (volumeRoot?.root ?: internalRoot)
-    val rootLabel = if (systemBrowsing) "System" else (volumeRoot?.label ?: "Internal storage")
+    val rootLabel = if (systemBrowsing) systemLabel else (volumeRoot?.label ?: internalStorageLabel)
     val stack = ArrayDeque<File>()
     var f: File? = current
     while (f != null) {
@@ -2377,18 +2461,25 @@ private fun ancestorsOf(
     }
 }
 
+@Composable
 internal fun metaText(item: FileItem): String {
-    val type = if (item.isDirectory) "Folder" else item.extension.uppercase().ifEmpty { "File" }
+    val type = if (item.isDirectory) {
+        stringResource(R.string.word_folder)
+    } else {
+        val ext = item.extension.uppercase()
+        if (ext.isEmpty()) stringResource(R.string.word_file) else ext
+    }
     val size = if (item.isDirectory) "" else " | ${formatSize(item.size)}"
     val date = if (item.lastModified > 0) " | ${formatDate(item.lastModified)}" else ""
     return "$type$size$date"
 }
 
+@Composable
 private fun sortLabel(sort: SortBy): String = when (sort) {
-    SortBy.NAME -> "Name"
-    SortBy.DATE -> "Date"
-    SortBy.SIZE -> "Size"
-    SortBy.TYPE -> "Type"
+    SortBy.NAME -> stringResource(R.string.sort_name)
+    SortBy.DATE -> stringResource(R.string.sort_date)
+    SortBy.SIZE -> stringResource(R.string.sort_size)
+    SortBy.TYPE -> stringResource(R.string.sort_type)
 }
 
 internal fun formatSize(bytes: Long): String {

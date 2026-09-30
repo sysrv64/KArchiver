@@ -10,14 +10,14 @@ repository = "https://github.com/sysrv64/KArchiver"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-jni = { version = "0.21" }
+jni = { version = "0.22.4" }
 zip = { version = "8.6", default-features = false, features = ["deflate", "bzip2", "lzma", "zstd", "aes-crypto"] }
-sevenz-rust2 = { version = "0.22", default-features = false, features = ["aes256", "bzip2", "compress", "ppmd", "util", "deflate", "zstd", "lz4"] }
+sevenz-rust2 = { version = "0.23", default-features = false, features = ["aes256", "bzip2", "compress", "ppmd", "util", "deflate", "zstd", "lz4"] }
 tar = "0.4"
 flate2 = "1.1"
 bzip2 = "0.6"
 zstd = "0.14"
-lzma-rust2 = "0.20"
+lzma-rust2 = "0.21"
 lz4_flex = "0.14"
 walkdir = "2.5"
 thiserror = "2.0"

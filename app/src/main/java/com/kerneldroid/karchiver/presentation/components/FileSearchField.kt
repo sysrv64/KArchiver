@@ -23,7 +23,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.kerneldroid.karchiver.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,7 +33,7 @@ internal fun FileSearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     onClose: () -> Unit,
-    placeholder: String = "Search files"
+    placeholder: String? = null
 ) {
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -41,6 +43,7 @@ internal fun FileSearchField(
         label = "searchFocusGrow"
     )
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    val resolvedPlaceholder = placeholder ?: stringResource(R.string.library_search_files)
     SearchBar(
         inputField = {
             SearchBarDefaults.InputField(
@@ -52,13 +55,13 @@ internal fun FileSearchField(
                 modifier = Modifier
                     .focusRequester(focusRequester)
                     .onFocusChanged { focused = it.isFocused },
-                placeholder = { Text(placeholder) },
+                placeholder = { Text(resolvedPlaceholder) },
                 leadingIcon = {
-                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.library_desc_back)) }
                 },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Filled.Close, "Clear") }
+                        IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Filled.Close, stringResource(R.string.library_desc_clear)) }
                     }
                 }
             )

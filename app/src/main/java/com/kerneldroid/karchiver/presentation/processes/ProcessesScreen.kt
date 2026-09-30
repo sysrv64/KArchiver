@@ -45,10 +45,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.archive.ArchiveTask
 import com.kerneldroid.karchiver.data.archive.TaskKind
 import com.kerneldroid.karchiver.data.archive.TaskManager
@@ -60,15 +63,17 @@ private fun kindIcon(kind: TaskKind): ImageVector = when (kind) {
     TaskKind.COMPRESS -> Icons.Filled.Archive
 }
 
-private fun activeStatusLabel(status: TaskStatus): String = when (status) {
-    TaskStatus.RUNNING -> "Running"
-    else -> "Queued"
+@StringRes
+private fun activeStatusRes(status: TaskStatus): Int = when (status) {
+    TaskStatus.RUNNING -> R.string.archive_status_running
+    else -> R.string.archive_status_queued
 }
 
-private fun finishedStatusLabel(status: TaskStatus): String = when (status) {
-    TaskStatus.DONE -> "Done"
-    TaskStatus.FAILED -> "Failed"
-    else -> "Cancelled"
+@StringRes
+private fun finishedStatusRes(status: TaskStatus): Int = when (status) {
+    TaskStatus.DONE -> R.string.archive_status_done
+    TaskStatus.FAILED -> R.string.archive_status_failed
+    else -> R.string.archive_status_cancelled
 }
 
 private fun finishedStatusIcon(status: TaskStatus): ImageVector = when (status) {
@@ -95,16 +100,16 @@ fun ProcessesScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                     containerColor = Color.Transparent,
                     scrolledContainerColor = Color.Transparent
                 ),
-                title = { Text("Processes") },
+                title = { Text(stringResource(R.string.archive_processes_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.archive_back))
                     }
                 },
                 actions = {
                     if (finished.isNotEmpty()) {
                         IconButton(onClick = TaskManager::clearFinished) {
-                            Icon(Icons.Filled.Close, "Clear finished")
+                            Icon(Icons.Filled.Close, stringResource(R.string.archive_clear_finished))
                         }
                     }
                 }
@@ -122,7 +127,7 @@ fun ProcessesScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 ) {
                     if (active.isNotEmpty()) {
                         item(key = "active-header") {
-                            SectionLabel("Active", activeCount)
+                            SectionLabel(stringResource(R.string.archive_section_active), activeCount)
                         }
                         itemsIndexed(active, key = { _, task -> "active-${task.id}" }) { index, task ->
                             ActiveTaskRow(task, context, index, active.size)
@@ -130,7 +135,7 @@ fun ProcessesScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                     }
                     if (finished.isNotEmpty()) {
                         item(key = "finished-header") {
-                            SectionLabel("Finished", finished.size)
+                            SectionLabel(stringResource(R.string.archive_section_finished), finished.size)
                         }
                         itemsIndexed(finished, key = { _, task -> "finished-${task.id}" }) { index, task ->
                             FinishedTaskRow(task, index, finished.size)
@@ -169,7 +174,7 @@ private fun SectionLabel(title: String, count: Int) {
 
 @Composable
 private fun ActiveTaskRow(task: ArchiveTask, context: android.content.Context, index: Int, count: Int) {
-    val statusLabel = activeStatusLabel(task.status)
+    val statusLabel = stringResource(activeStatusRes(task.status))
     val fraction = task.fraction
     SegmentedListItem(
         onClick = {},
@@ -182,7 +187,7 @@ private fun ActiveTaskRow(task: ArchiveTask, context: android.content.Context, i
         },
         trailingContent = {
             IconButton(onClick = { TaskManager.cancel(task.id) }) {
-                Icon(Icons.Filled.Close, "Cancel")
+                Icon(Icons.Filled.Close, stringResource(R.string.archive_cancel))
             }
         }
     ) {
@@ -216,12 +221,14 @@ private fun ActiveTaskRow(task: ArchiveTask, context: android.content.Context, i
                     progress = { fraction },
                     modifier = Modifier.fillMaxWidth()
                 )
-                val sizeText = buildString {
-                    append(Formatter.formatShortFileSize(context, task.done))
-                    append(" of ")
-                    append(Formatter.formatShortFileSize(context, task.total))
-                    if (!task.speedText.isNullOrBlank()) append(" · ").append(task.speedText)
-                    if (!task.etaText.isNullOrBlank()) append(" · ").append(task.etaText)
+                val doneStr = Formatter.formatShortFileSize(context, task.done)
+                val totalStr = Formatter.formatShortFileSize(context, task.total)
+                var sizeText = context.resources.getString(R.string.archive_progress_of, doneStr, totalStr)
+                if (!task.speedText.isNullOrBlank()) {
+                    sizeText = context.resources.getString(R.string.archive_progress_detail, sizeText, task.speedText)
+                }
+                if (!task.etaText.isNullOrBlank()) {
+                    sizeText = context.resources.getString(R.string.archive_progress_detail, sizeText, task.etaText)
                 }
                 Text(
                     text = sizeText,
@@ -240,7 +247,7 @@ private fun ActiveTaskRow(task: ArchiveTask, context: android.content.Context, i
 
 @Composable
 private fun FinishedTaskRow(task: ArchiveTask, index: Int, count: Int) {
-    val statusLabel = finishedStatusLabel(task.status)
+    val statusLabel = stringResource(finishedStatusRes(task.status))
     val statusColor = when (task.status) {
         TaskStatus.DONE -> MaterialTheme.colorScheme.primary
         TaskStatus.FAILED -> MaterialTheme.colorScheme.error
@@ -257,7 +264,7 @@ private fun FinishedTaskRow(task: ArchiveTask, index: Int, count: Int) {
         },
         trailingContent = {
             IconButton(onClick = { TaskManager.remove(task.id) }) {
-                Icon(Icons.Filled.Close, "Remove")
+                Icon(Icons.Filled.Close, stringResource(R.string.archive_remove))
             }
         }
     ) {
@@ -306,12 +313,12 @@ private fun ProcessesEmptyState() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "No background tasks",
+            text = stringResource(R.string.archive_no_tasks),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = "Extract or compress an archive to see it here.",
+            text = stringResource(R.string.archive_no_tasks_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp)

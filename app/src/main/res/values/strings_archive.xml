@@ -1,0 +1,84 @@
+<resources>
+    <string name="archive_update_failed">Could not update archive</string>
+    <string name="archive_invalid_name">Invalid name</string>
+    <string name="archive_invalid_date">Invalid date</string>
+    <string name="archive_invalid_permissions">Invalid permissions</string>
+    <string name="archive_extract_entries_failed">Could not extract entries</string>
+    <string name="archive_extract_archive_failed">Could not extract archive</string>
+    <string name="archive_nothing_to_share">Nothing to share</string>
+    <string name="archive_cannot_share">Cannot share</string>
+    <string name="archive_cannot_open_with">Cannot open with this app</string>
+    <string name="archive_selection_changed">Selection changed</string>
+    <string name="archive_nothing_to_compress">Nothing to compress</string>
+    <string name="archive_add_files">Add files</string>
+    <string name="archive_dismiss">Dismiss</string>
+    <string name="archive_read_only">Archive is read-only</string>
+    <string name="archive_empty_folder">Empty folder</string>
+    <string name="archive_copy">Copy</string>
+    <string name="archive_extract">Extract</string>
+    <string name="archive_more_actions">More actions</string>
+    <string name="archive_extract_here">Extract here</string>
+    <string name="archive_choose_folder">Choose folder</string>
+    <string name="archive_cannot_be_undone">This cannot be undone.</string>
+    <string name="archive_delete">Delete</string>
+    <string name="archive_cancel">Cancel</string>
+    <string name="archive_compress_title">Compress to archive</string>
+    <string name="archive_name_label">Archive name</string>
+    <string name="archive_zip">ZIP</string>
+    <string name="archive_7z">7Z</string>
+    <string name="archive_password_optional">Password (optional)</string>
+    <string name="archive_will_be_created">Will be created: %1$s</string>
+    <string name="archive_compress_action">Compress</string>
+    <string name="archive_default_base">archive</string>
+    <string name="archive_default_name_pattern">%1$s-archive.zip</string>
+    <string name="archive_processes_title">Processes</string>
+    <string name="archive_back">Back</string>
+    <string name="archive_clear_finished">Clear finished</string>
+    <string name="archive_section_active">Active</string>
+    <string name="archive_section_finished">Finished</string>
+    <string name="archive_status_running">Running</string>
+    <string name="archive_status_queued">Queued</string>
+    <string name="archive_status_done">Done</string>
+    <string name="archive_status_failed">Failed</string>
+    <string name="archive_status_cancelled">Cancelled</string>
+    <string name="archive_remove">Remove</string>
+    <string name="archive_progress_of">%1$s of %2$s</string>
+    <string name="archive_progress_detail">%1$s · %2$s</string>
+    <string name="archive_no_tasks">No background tasks</string>
+    <string name="archive_no_tasks_hint">Extract or compress an archive to see it here.</string>
+    <string name="archive_notif_channel_ops">Archive operations</string>
+    <string name="archive_notif_channel_done">Archive finished</string>
+    <string name="archive_processed_size">%1$s processed</string>
+    <string name="archive_working">Working</string>
+    <string name="archive_notif_cancel_all">Cancel all</string>
+    <string name="archive_completed">Completed successfully</string>
+    <string name="archive_failed_format">Failed: %1$s</string>
+    <string name="archive_operation_failed">Operation failed</string>
+    <string name="archive_stalled">Operation stalled (no progress for 5 minutes)</string>
+    <string name="archive_speed_format">%1$s/s</string>
+    <string name="archive_eta_less_minute">less than a minute left</string>
+    <plurals name="archive_add_failed_count">
+        <item quantity="one">Could not add %1$d file</item>
+        <item quantity="other">Could not add %1$d files</item>
+    </plurals>
+    <plurals name="archive_copy_to_folder_failed_count">
+        <item quantity="one">Could not copy %1$d file to selected folder</item>
+        <item quantity="other">Could not copy %1$d files to selected folder</item>
+    </plurals>
+    <plurals name="archive_delete_confirm_title">
+        <item quantity="one">Delete %1$d item?</item>
+        <item quantity="other">Delete %1$d items?</item>
+    </plurals>
+    <plurals name="archive_tasks_running_count">
+        <item quantity="one">%1$d task running</item>
+        <item quantity="other">%1$d tasks running</item>
+    </plurals>
+    <plurals name="archive_eta_minutes">
+        <item quantity="one">~%1$d min left</item>
+        <item quantity="other">~%1$d min left</item>
+    </plurals>
+    <plurals name="archive_eta_hours">
+        <item quantity="one">~%1$d hr left</item>
+        <item quantity="other">~%1$d hr left</item>
+    </plurals>
+</resources>

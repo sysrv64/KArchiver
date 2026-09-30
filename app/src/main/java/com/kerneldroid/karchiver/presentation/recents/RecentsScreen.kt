@@ -40,9 +40,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.FileItem
 import com.kerneldroid.karchiver.data.FormatRegistry
 import com.kerneldroid.karchiver.data.formatBytes
@@ -101,15 +103,15 @@ fun RecentsScreen(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = Color.Transparent
                 ),
-                title = { Text("Recents") },
+                title = { Text(stringResource(R.string.library_recents_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.library_desc_back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { vm.refreshRecents() }, enabled = !scanning) {
-                        Icon(Icons.Filled.Refresh, "Rescan")
+                        Icon(Icons.Filled.Refresh, stringResource(R.string.library_desc_rescan))
                     }
                 }
             )
@@ -118,15 +120,19 @@ fun RecentsScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (scanning) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                val scanningText = if (items.isEmpty()) stringResource(R.string.library_recents_scanning_storage)
+                else context.resources.getQuantityString(R.plurals.library_recents_scanning_folders, scanned, scanned)
                 Text(
-                    text = if (items.isEmpty()) "Scanning storage…" else "Scanning… $scanned folders",
+                    text = scanningText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                 )
             } else if (items.isNotEmpty()) {
+                val countText = if (capped) context.resources.getQuantityString(R.plurals.library_recents_newest_items, items.size, items.size)
+                else context.resources.getQuantityString(R.plurals.library_recents_count, items.size, items.size)
                 Text(
-                    text = if (capped) "Newest ${items.size} items" else "${items.size} recent items",
+                    text = countText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
@@ -163,6 +169,10 @@ private fun RecentsRow(
     now: Long,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val folderLabel = stringResource(R.string.library_recents_folder)
+    val fileLabel = stringResource(R.string.library_recents_file)
+    val timeLabel = relativeTime(context, item.lastModified, now)
     SegmentedListItem(
         onClick = onClick,
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
@@ -188,9 +198,9 @@ private fun RecentsRow(
             Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 text = buildString {
-                    append(if (item.isDirectory) "Folder" else item.extension.uppercase().ifEmpty { "File" })
+                    append(if (item.isDirectory) folderLabel else item.extension.uppercase().ifEmpty { fileLabel })
                     if (!item.isDirectory) append(" • ").append(formatBytes(item.size))
-                    append(" • ").append(relativeTime(item.lastModified, now))
+                    append(" • ").append(timeLabel)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -211,12 +221,12 @@ private fun RecentsEmptyState() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Nothing recent",
+            text = stringResource(R.string.library_recents_empty_title),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = "Files and folders you change will appear here",
+            text = stringResource(R.string.library_recents_empty_sub),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp)

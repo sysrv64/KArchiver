@@ -1,0 +1,96 @@
+<resources>
+    <string name="archive_update_failed">Не удалось обновить архив</string>
+    <string name="archive_invalid_name">Недопустимое имя</string>
+    <string name="archive_invalid_date">Недопустимая дата</string>
+    <string name="archive_invalid_permissions">Недопустимые права</string>
+    <string name="archive_extract_entries_failed">Не удалось извлечь записи</string>
+    <string name="archive_extract_archive_failed">Не удалось извлечь архив</string>
+    <string name="archive_nothing_to_share">Нечего отправить</string>
+    <string name="archive_cannot_share">Не удалось отправить</string>
+    <string name="archive_cannot_open_with">Не удалось открыть в этом приложении</string>
+    <string name="archive_selection_changed">Выбор изменился</string>
+    <string name="archive_nothing_to_compress">Нечего сжимать</string>
+    <string name="archive_add_files">Добавить файлы</string>
+    <string name="archive_dismiss">Закрыть</string>
+    <string name="archive_read_only">Архив доступен только для чтения</string>
+    <string name="archive_empty_folder">Пустая папка</string>
+    <string name="archive_copy">Копировать</string>
+    <string name="archive_extract">Извлечь</string>
+    <string name="archive_more_actions">Другие действия</string>
+    <string name="archive_extract_here">Извлечь сюда</string>
+    <string name="archive_choose_folder">Выбрать папку</string>
+    <string name="archive_cannot_be_undone">Это действие нельзя отменить.</string>
+    <string name="archive_delete">Удалить</string>
+    <string name="archive_cancel">Отмена</string>
+    <string name="archive_compress_title">Сжать в архив</string>
+    <string name="archive_name_label">Имя архива</string>
+    <string name="archive_zip">ZIP</string>
+    <string name="archive_7z">7Z</string>
+    <string name="archive_password_optional">Пароль (необязательно)</string>
+    <string name="archive_will_be_created">Будет создан: %1$s</string>
+    <string name="archive_compress_action">Сжать</string>
+    <string name="archive_default_base">archive</string>
+    <string name="archive_default_name_pattern">%1$s-archive.zip</string>
+    <string name="archive_processes_title">Процессы</string>
+    <string name="archive_back">Назад</string>
+    <string name="archive_clear_finished">Очистить завершённые</string>
+    <string name="archive_section_active">Активные</string>
+    <string name="archive_section_finished">Завершённые</string>
+    <string name="archive_status_running">Выполняется</string>
+    <string name="archive_status_queued">В очереди</string>
+    <string name="archive_status_done">Готово</string>
+    <string name="archive_status_failed">Ошибка</string>
+    <string name="archive_status_cancelled">Отменено</string>
+    <string name="archive_remove">Убрать</string>
+    <string name="archive_progress_of">%1$s из %2$s</string>
+    <string name="archive_progress_detail">%1$s · %2$s</string>
+    <string name="archive_no_tasks">Нет фоновых задач</string>
+    <string name="archive_no_tasks_hint">Извлеките архив или сожмите файлы, чтобы увидеть задачу здесь.</string>
+    <string name="archive_notif_channel_ops">Операции с архивами</string>
+    <string name="archive_notif_channel_done">Завершение операций</string>
+    <string name="archive_processed_size">Обработано %1$s</string>
+    <string name="archive_working">Идёт обработка</string>
+    <string name="archive_notif_cancel_all">Отменить все</string>
+    <string name="archive_completed">Успешно завершено</string>
+    <string name="archive_failed_format">Ошибка: %1$s</string>
+    <string name="archive_operation_failed">Операция не удалась</string>
+    <string name="archive_stalled">Операция остановилась (нет прогресса в течение 5 минут)</string>
+    <string name="archive_speed_format">%1$s/s</string>
+    <string name="archive_eta_less_minute">осталось меньше минуты</string>
+    <plurals name="archive_add_failed_count">
+        <item quantity="one">Не удалось добавить %1$d файл</item>
+        <item quantity="few">Не удалось добавить %1$d файла</item>
+        <item quantity="many">Не удалось добавить %1$d файлов</item>
+        <item quantity="other">Не удалось добавить %1$d файлов</item>
+    </plurals>
+    <plurals name="archive_copy_to_folder_failed_count">
+        <item quantity="one">Не удалось скопировать %1$d файл в выбранную папку</item>
+        <item quantity="few">Не удалось скопировать %1$d файла в выбранную папку</item>
+        <item quantity="many">Не удалось скопировать %1$d файлов в выбранную папку</item>
+        <item quantity="other">Не удалось скопировать %1$d файлов в выбранную папку</item>
+    </plurals>
+    <plurals name="archive_delete_confirm_title">
+        <item quantity="one">Удалить %1$d элемент?</item>
+        <item quantity="few">Удалить %1$d элемента?</item>
+        <item quantity="many">Удалить %1$d элементов?</item>
+        <item quantity="other">Удалить %1$d элементов?</item>
+    </plurals>
+    <plurals name="archive_tasks_running_count">
+        <item quantity="one">%1$d задача выполняется</item>
+        <item quantity="few">%1$d задачи выполняются</item>
+        <item quantity="many">%1$d задач выполняется</item>
+        <item quantity="other">%1$d задач выполняется</item>
+    </plurals>
+    <plurals name="archive_eta_minutes">
+        <item quantity="one">Осталась ~%1$d минута</item>
+        <item quantity="few">Осталось ~%1$d минуты</item>
+        <item quantity="many">Осталось ~%1$d минут</item>
+        <item quantity="other">Осталось ~%1$d минут</item>
+    </plurals>
+    <plurals name="archive_eta_hours">
+        <item quantity="one">Остался ~%1$d час</item>
+        <item quantity="few">Осталось ~%1$d часа</item>
+        <item quantity="many">Осталось ~%1$d часов</item>
+        <item quantity="other">Осталось ~%1$d часов</item>
+    </plurals>
+</resources>

@@ -1,6 +1,7 @@
 package com.kerneldroid.karchiver.data.trash
 
 import android.content.Context
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.elevation.ElevatedFS
 import com.kerneldroid.karchiver.data.storage.loadAppVolumes
 import com.kerneldroid.karchiver.data.uniqueName
@@ -46,12 +47,12 @@ class TrashRepository private constructor(
         fallback: File,
         elevated: ElevatedFS?
     ): TrashEntry {
-        if (!file.exists()) error("Not accessible")
+        if (!file.exists()) error(appContext.getString(R.string.data_trash_not_accessible))
         val id = UUID.randomUUID().toString()
         val root = trashRootFor(file, volumeRoots, fallback)
         val entryDir = File(root, id)
         if (!entryDir.exists() && !entryDir.mkdirs()) {
-            if (elevated?.mkdirs(entryDir) != true) error("Could not create Trash")
+            if (elevated?.mkdirs(entryDir) != true) error(appContext.getString(R.string.data_trash_could_not_create))
         }
         val marker = File(root, ".nomedia")
         if (!marker.exists()) runCatching { marker.createNewFile() }
@@ -59,7 +60,7 @@ class TrashRepository private constructor(
         val dest = File(entryDir, name)
         if (!relocate(file, dest, elevated)) {
             runCatching { entryDir.deleteRecursively() }
-            error("Could not move to Trash")
+            error(appContext.getString(R.string.data_trash_could_not_move))
         }
         val entry = TrashEntry(
             id = id,
@@ -77,20 +78,20 @@ class TrashRepository private constructor(
     suspend fun restore(entry: TrashEntry, elevated: ElevatedFS? = null): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val stored = File(entry.storedPath)
-            if (!stored.exists()) error("Item is missing")
+            if (!stored.exists()) error(appContext.getString(R.string.data_trash_item_missing))
             val original = File(entry.originalPath)
-            val parent = original.parentFile ?: error("Cannot restore to this location")
+            val parent = original.parentFile ?: error(appContext.getString(R.string.data_trash_cannot_restore_location))
             if (!parent.exists()) {
                 val made = parent.mkdirs() || elevated?.mkdirs(parent) == true
-                if (!made && !parent.exists()) error("Cannot create the original folder")
+                if (!made && !parent.exists()) error(appContext.getString(R.string.data_trash_cannot_create_folder))
             }
             val dest = if (original.exists()) {
                 File(parent, uniqueName(entry.name, namesIn(parent, elevated)))
             } else {
                 original
             }
-            if (!relocate(stored, dest, elevated)) error("Could not restore")
-            if (stored.exists()) error("Could not restore")
+            if (!relocate(stored, dest, elevated)) error(appContext.getString(R.string.data_trash_could_not_restore))
+            if (stored.exists()) error(appContext.getString(R.string.data_trash_could_not_restore))
             removeEntryDir(entry)
             dao.remove(entry.id)
             dest
@@ -105,7 +106,7 @@ class TrashRepository private constructor(
                     if (stored.isDirectory) stored.deleteRecursively() else stored.delete()
                 }.getOrDefault(false)
                 if (!deleted && stored.exists()) {
-                    if (elevated?.deleteRecursively(listOf(stored)) != true) error("Could not delete")
+                    if (elevated?.deleteRecursively(listOf(stored)) != true) error(appContext.getString(R.string.data_trash_could_not_delete))
                 }
             }
             removeEntryDir(entry)
@@ -126,7 +127,7 @@ class TrashRepository private constructor(
         if (failures.isEmpty()) {
             Result.success(deleted)
         } else {
-            Result.failure(Exception("Could not delete: " + failures.joinToString(", ")))
+            Result.failure(Exception(appContext.getString(R.string.data_trash_could_not_delete_list, failures.joinToString(", "))))
         }
     }
 

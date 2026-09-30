@@ -72,12 +72,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
 import com.kerneldroid.karchiver.data.CompressFormat
 import com.kerneldroid.karchiver.data.FileItem
@@ -292,13 +294,13 @@ fun ArchiveExplorerRoute(
                 File(dir, path.trimStart('/')).takeIf { it.isFile }
             }
             if (files.isEmpty()) {
-                addError = "Nothing to share"
+                addError = context.getString(R.string.archive_nothing_to_share)
                 withContext(Dispatchers.IO) { runCatching { dir.deleteRecursively() } }
                 return@launch
             }
             trackStaged(dir)
             shareFiles(context, files).onFailure {
-                addError = "Cannot share"
+                addError = context.getString(R.string.archive_cannot_share)
             }
         }
     }
@@ -317,7 +319,7 @@ fun ArchiveExplorerRoute(
         openWithFile = null
         val mime = FormatRegistry.forExtension(target.extension).mime
         launchOpenWith(context, target, mime, app).onFailure {
-            addError = "Cannot open with this app"
+            addError = context.getString(R.string.archive_cannot_open_with)
         }
     }
 
@@ -385,7 +387,7 @@ fun ArchiveExplorerRoute(
                 withContext(Dispatchers.IO) {
                     runCatching { stageDir.deleteRecursively() }
                 }
-                addError = if (failures > 0) "Could not add $failures file(s)" else null
+                addError = if (failures > 0) context.resources.getQuantityString(R.plurals.archive_add_failed_count, failures, failures) else null
             }
         }
     }
@@ -407,7 +409,7 @@ fun ArchiveExplorerRoute(
             val rawDir = treeUriToPrimaryPath(uri)
             if (rawDir != null && (rawDir.isDirectory || rawDir.mkdirs()) && rawDir.canWrite()) {
                 if (state.selected.isEmpty()) {
-                    addError = "Selection changed"
+                    addError = context.getString(R.string.archive_selection_changed)
                 } else {
                     val ok = vm.extractSelected(rawDir)
                     if (ok && pendingTreeCut) vm.deleteSelected()
@@ -416,7 +418,7 @@ fun ArchiveExplorerRoute(
                 val staging = File(context.cacheDir, "explorer-tree-" + System.nanoTime())
                 withContext(Dispatchers.IO) { staging.mkdirs() }
                 val ok = if (state.selected.isEmpty()) {
-                    addError = "Selection changed"
+                    addError = context.getString(R.string.archive_selection_changed)
                     false
                 } else {
                     vm.extractSelected(staging)
@@ -428,7 +430,7 @@ fun ArchiveExplorerRoute(
                         if (!SafFs.copyIn(context, uri, "", kid)) failures++
                     }
                     if (failures > 0) {
-                        addError = "Could not copy $failures file(s) to selected folder"
+                        addError = context.resources.getQuantityString(R.plurals.archive_copy_to_folder_failed_count, failures, failures)
                     } else if (pendingTreeCut) {
                         vm.deleteSelected()
                     }
@@ -490,7 +492,7 @@ fun ArchiveExplorerRoute(
                 actions = {
                     if (canEdit) {
                         IconButton(onClick = { addPicker.launch(arrayOf("*/*")) }) {
-                            Icon(Icons.Filled.Add, "Add files")
+                            Icon(Icons.Filled.Add, stringResource(R.string.archive_add_files))
                         }
                     }
                 }
@@ -511,7 +513,7 @@ fun ArchiveExplorerRoute(
         if (state.isLoading) {
             LinearWavyProgressIndicator(Modifier.fillMaxWidth())
         }
-        val errorText = state.error ?: addError
+        val errorText = state.error?.let { stringResource(it) } ?: addError
         if (errorText != null) {
             Surface(
                 color = MaterialTheme.colorScheme.errorContainer,
@@ -534,7 +536,7 @@ fun ArchiveExplorerRoute(
                         onClick = { vm.dismissError(); addError = null },
                         modifier = Modifier.size(32.dp)
                     ) {
-                        Icon(Icons.Filled.Close, "Dismiss", Modifier.size(18.dp))
+                        Icon(Icons.Filled.Close, stringResource(R.string.archive_dismiss), Modifier.size(18.dp))
                     }
                 }
             }
@@ -553,7 +555,7 @@ fun ArchiveExplorerRoute(
                 ) {
                     Icon(Icons.Filled.Lock, null, Modifier.size(20.dp))
                     Text(
-                        text = "Archive is read-only",
+                        text = stringResource(R.string.archive_read_only),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f)
                     )
@@ -579,7 +581,7 @@ fun ArchiveExplorerRoute(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                "Empty folder",
+                                stringResource(R.string.archive_empty_folder),
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -639,7 +641,7 @@ fun ArchiveExplorerRoute(
                         collapsedShadowElevation = 6.dp,
                         content = {
                             IconButton(onClick = { showDestMenu(false) }) {
-                                Icon(Icons.Filled.ContentCopy, "Copy")
+                                Icon(Icons.Filled.ContentCopy, stringResource(R.string.archive_copy))
                             }
                         },
                         trailingContent = {
@@ -651,11 +653,11 @@ fun ArchiveExplorerRoute(
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                 ) {
-                                    Icon(Icons.Filled.FolderOpen, "Extract")
+                                    Icon(Icons.Filled.FolderOpen, stringResource(R.string.archive_extract))
                                 }
                                 Box {
                                     IconButton(onClick = { showOverflow = true }) {
-                                        Icon(Icons.Filled.MoreVert, "More actions")
+                                        Icon(Icons.Filled.MoreVert, stringResource(R.string.archive_more_actions))
                                     }
                                     FileOverflowMenu(
                                         expanded = showOverflow,
@@ -673,11 +675,11 @@ fun ArchiveExplorerRoute(
                 }
                 DropdownMenu(expanded = showDestMenu, onDismissRequest = { showDestMenu = false }) {
                     DropdownMenuItem(
-                        text = { Text("Extract here") },
+                        text = { Text(stringResource(R.string.archive_extract_here)) },
                         onClick = { showDestMenu = false; extractSelectionHere(destCut) }
                     )
                     DropdownMenuItem(
-                        text = { Text("Choose folder") },
+                        text = { Text(stringResource(R.string.archive_choose_folder)) },
                         onClick = {
                             showDestMenu = false
                             pendingTreeCut = destCut
@@ -693,54 +695,56 @@ fun ArchiveExplorerRoute(
         val count = state.selected.size
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text(if (count == 1) "Delete 1 item?" else "Delete $count items?") },
-            text = { Text("This cannot be undone.") },
+            title = { Text(context.resources.getQuantityString(R.plurals.archive_delete_confirm_title, count, count)) },
+            text = { Text(stringResource(R.string.archive_cannot_be_undone)) },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
                     scope.launch { vm.deleteSelected() }
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.archive_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(R.string.archive_cancel)) }
             }
         )
     }
 
     if (showCompressDialog) {
-        val firstBase = remember(state.selected) {
+        val defaultBase = stringResource(R.string.archive_default_base)
+        val firstBase = remember(state.selected, defaultBase) {
             state.rows.firstOrNull { state.selected.contains(it.path) }
-                ?.displayName?.substringBeforeLast('.')?.ifBlank { "archive" } ?: "archive"
+                ?.displayName?.substringBeforeLast('.')?.ifBlank { defaultBase } ?: defaultBase
         }
-        var name by rememberSaveable(firstBase) { mutableStateOf("$firstBase-archive.zip") }
+        val defaultName = stringResource(R.string.archive_default_name_pattern, firstBase)
+        var name by rememberSaveable(firstBase) { mutableStateOf(defaultName) }
         var format by remember { mutableStateOf(CompressFormat.ZIP) }
         var compressPassword by remember { mutableStateOf("") }
         var formatMenu by remember { mutableStateOf(false) }
-        val finalName = normalizeArchiveName(name.ifBlank { "archive" }, format)
+        val finalName = normalizeArchiveName(name.ifBlank { defaultBase }, format)
         AlertDialog(
             onDismissRequest = { showCompressDialog = false },
             icon = { Icon(Icons.Filled.Archive, null) },
-            title = { Text("Compress to archive") },
+            title = { Text(stringResource(R.string.archive_compress_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Archive name") },
+                        label = { Text(stringResource(R.string.archive_name_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Box {
                         TextButton(onClick = { formatMenu = true }) {
-                            Text(format.label)
+                            Text(stringResource(if (format == CompressFormat.ZIP) R.string.archive_zip else R.string.archive_7z))
                         }
                         DropdownMenu(expanded = formatMenu, onDismissRequest = { formatMenu = false }) {
                             DropdownMenuItem(
-                                text = { Text("ZIP") },
+                                text = { Text(stringResource(R.string.archive_zip)) },
                                 onClick = { format = CompressFormat.ZIP; formatMenu = false }
                             )
                             DropdownMenuItem(
-                                text = { Text("7Z") },
+                                text = { Text(stringResource(R.string.archive_7z)) },
                                 onClick = { format = CompressFormat.SEVEN_Z; formatMenu = false }
                             )
                         }
@@ -748,13 +752,13 @@ fun ArchiveExplorerRoute(
                     OutlinedTextField(
                         value = compressPassword,
                         onValueChange = { compressPassword = it },
-                        label = { Text("Password (optional)") },
+                        label = { Text(stringResource(R.string.archive_password_optional)) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text(
-                        "Will be created: ${archive.parentFile?.absolutePath}/$finalName",
+                        stringResource(R.string.archive_will_be_created, "${archive.parentFile?.absolutePath}/$finalName"),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -779,7 +783,7 @@ fun ArchiveExplorerRoute(
                                 compressStage = staging
                                 compressRunning = true
                             } else {
-                                addError = "Nothing to compress"
+                                addError = context.getString(R.string.archive_nothing_to_compress)
                                 withContext(Dispatchers.IO) { runCatching { staging.deleteRecursively() } }
                             }
                         } else {
@@ -787,10 +791,10 @@ fun ArchiveExplorerRoute(
                         }
                         vm.clearSelection()
                     }
-                }) { Text("Compress") }
+                }) { Text(stringResource(R.string.archive_compress_action)) }
             },
             dismissButton = {
-                TextButton(onClick = { showCompressDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showCompressDialog = false }) { Text(stringResource(R.string.archive_cancel)) }
             }
         )
     }
