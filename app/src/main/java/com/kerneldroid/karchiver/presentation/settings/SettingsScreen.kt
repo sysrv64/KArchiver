@@ -879,19 +879,19 @@ fun SettingsElevationScreen(
             title = { Text(stringResource(R.string.settings_category_elevation)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ElevationOption(
+                    ChoiceRow(
                         selected = settings.elevationMode == "off",
                         title = stringResource(R.string.settings_elevation_off),
                         subtitle = stringResource(R.string.settings_elevation_off_subtitle),
                         onSelect = { scope.launch { repo.setElevationMode("off") } }
                     )
-                    ElevationOption(
+                    ChoiceRow(
                         selected = settings.elevationMode == "shizuku",
                         title = stringResource(R.string.settings_elevation_shizuku),
                         subtitle = shizukuStatusLabel(shizukuStatus),
                         onSelect = { scope.launch { repo.setElevationMode("shizuku") } }
                     )
-                    ElevationOption(
+                    ChoiceRow(
                         selected = settings.elevationMode == "root",
                         title = stringResource(R.string.settings_elevation_root),
                         subtitle = rootStatusLabel(rootStatus),
@@ -1052,11 +1052,12 @@ private fun shizukuStatusLabel(status: ShizukuStatus): String = when (status) {
 }
 
 @Composable
-private fun ElevationOption(
+private fun ChoiceRow(
     selected: Boolean,
     title: String,
-    subtitle: String,
-    onSelect: () -> Unit
+    onSelect: () -> Unit,
+    subtitle: String? = null,
+    showSelection: Boolean = true
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1065,14 +1066,18 @@ private fun ElevationOption(
             .clickable(onClick = onSelect)
             .padding(vertical = 8.dp)
     ) {
-        RadioButton(selected = selected, onClick = onSelect)
-        Column(modifier = Modifier.padding(start = 12.dp)) {
+        if (showSelection) {
+            RadioButton(selected = selected, onClick = onSelect)
+        }
+        Column(modifier = Modifier.padding(start = if (showSelection) 12.dp else 0.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -1244,16 +1249,16 @@ fun SettingsArchivesScreen(
     val scope = rememberCoroutineScope()
     val formats = CompressionLevels.supportedFormats()
     val defaultFormat = settings.defaultCompressFormatEnum()
-    var showFormatPicker by remember { mutableStateOf(false) }
+    var showDefaultFormatPicker by remember { mutableStateOf(false) }
+    var showLevelFormatPicker by remember { mutableStateOf(false) }
     var levelFormat by remember { mutableStateOf<CompressFormat?>(null) }
-    val levelRowCount = formats.size + 1
 
     SettingsScaffold(stringResource(R.string.settings_category_archives), onBack, barLifted, onToggleBar) {
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             SectionHeader(stringResource(R.string.settings_archives_section_general))
             SegmentedListItem(
-                onClick = { showFormatPicker = true },
-                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
+                onClick = { showDefaultFormatPicker = true },
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 2),
                 colors = ListItemDefaults.segmentedColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
@@ -1263,41 +1268,17 @@ fun SettingsArchivesScreen(
             ) {
                 Text(stringResource(R.string.settings_archives_default_format))
             }
-
-            SectionHeader(stringResource(R.string.settings_archives_section_levels))
             SegmentedListItem(
-                onClick = { showFormatPicker = true },
-                shapes = ListItemDefaults.segmentedShapes(index = 0, count = levelRowCount),
+                onClick = { showLevelFormatPicker = true },
+                shapes = ListItemDefaults.segmentedShapes(index = 1, count = 2),
                 colors = ListItemDefaults.segmentedColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 leadingContent = { Icon(Icons.Filled.Compress, null) },
-                supportingContent = {
-                    Text(stringResource(R.string.settings_archives_level_summary, defaultFormat.label))
-                },
+                supportingContent = { Text(stringResource(R.string.settings_archives_level_summary)) },
                 trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
             ) {
                 Text(stringResource(R.string.settings_archives_compression_level))
-            }
-
-            formats.forEachIndexed { index, format ->
-                val level = settings.compressionLevel(format)
-                val marker = compressionMarkerLabel(CompressionLevels.marker(format, level))
-                SegmentedListItem(
-                    onClick = { levelFormat = format },
-                    shapes = ListItemDefaults.segmentedShapes(index = index + 1, count = levelRowCount),
-                    colors = ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                    supportingContent = {
-                        Text(
-                            if (marker.isEmpty()) "$level" else "$level · $marker"
-                        )
-                    },
-                    trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
-                ) {
-                    Text(format.label)
-                }
             }
 
             Text(
@@ -1308,34 +1289,62 @@ fun SettingsArchivesScreen(
         }
     }
 
-    if (showFormatPicker) {
+    if (showDefaultFormatPicker) {
         AlertDialog(
-            onDismissRequest = { showFormatPicker = false },
-            icon = { Icon(Icons.Filled.Compress, null) },
-            title = { Text(stringResource(R.string.settings_archives_choose_format_title)) },
+            onDismissRequest = { showDefaultFormatPicker = false },
+            icon = { Icon(Icons.Filled.FolderZip, null) },
+            title = { Text(stringResource(R.string.settings_archives_default_format)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CompressFormat.entries.forEach { format ->
-                        val selected = format == defaultFormat
-                        val level = CompressionLevels.spec(format)?.let { settings.compressionLevel(format) }
-                        ElevationOption(
-                            selected = selected,
+                        ChoiceRow(
+                            selected = format == defaultFormat,
                             title = format.label,
-                            subtitle = if (level == null) {
-                                stringResource(R.string.settings_archives_no_level_format)
-                            } else {
-                                stringResource(R.string.settings_archives_current_level, "$level")
-                            },
                             onSelect = {
                                 scope.launch { repo.setDefaultCompressFormat(format) }
-                                showFormatPicker = false
+                                showDefaultFormatPicker = false
                             }
                         )
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showFormatPicker = false }) {
+                TextButton(onClick = { showDefaultFormatPicker = false }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            }
+        )
+    }
+
+    if (showLevelFormatPicker) {
+        AlertDialog(
+            onDismissRequest = { showLevelFormatPicker = false },
+            icon = { Icon(Icons.Filled.Compress, null) },
+            title = { Text(stringResource(R.string.settings_archives_choose_format_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        stringResource(R.string.settings_archives_level_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    formats.forEach { format ->
+                        val level = settings.compressionLevel(format)
+                        ChoiceRow(
+                            selected = false,
+                            title = format.label,
+                            subtitle = stringResource(R.string.settings_archives_current_level, "$level"),
+                            showSelection = false,
+                            onSelect = {
+                                showLevelFormatPicker = false
+                                levelFormat = format
+                            }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLevelFormatPicker = false }) {
                     Text(stringResource(R.string.action_close))
                 }
             }
@@ -1353,30 +1362,21 @@ fun SettingsArchivesScreen(
                     Text(stringResource(R.string.settings_archives_choose_level_title, format.label))
                 },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            stringResource(R.string.settings_archives_level_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        LazyColumn(
-                            modifier = Modifier.heightIn(max = 320.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            items((spec.min..spec.max).toList()) { level ->
-                                val marker = compressionMarkerLabel(CompressionLevels.marker(format, level))
-                                ElevationOption(
-                                    selected = level == current,
-                                    title = "$level",
-                                    subtitle = marker.ifEmpty {
-                                        stringResource(R.string.settings_archives_marker_plain)
-                                    },
-                                    onSelect = {
-                                        scope.launch { repo.setCompressionLevel(format, level) }
-                                        levelFormat = null
-                                    }
-                                )
-                            }
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 320.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        items((spec.min..spec.max).toList()) { level ->
+                            val marker = compressionMarkerLabel(CompressionLevels.marker(format, level))
+                            ChoiceRow(
+                                selected = level == current,
+                                title = "$level",
+                                subtitle = marker.takeIf { it.isNotEmpty() },
+                                onSelect = {
+                                    scope.launch { repo.setCompressionLevel(format, level) }
+                                    levelFormat = null
+                                }
+                            )
                         }
                     }
                 },

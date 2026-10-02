@@ -34,10 +34,12 @@ object CompressionLevels {
 
     fun markerOf(spec: CompressionLevelSpec, level: Int): CompressionMarker {
         val clamped = level.coerceIn(spec.min, spec.max)
+        if (spec.zeroMeansStore && clamped == 0) return CompressionMarker.STORE
+        if (spec.min == spec.max) return CompressionMarker.PLAIN
+        val fastest = if (spec.zeroMeansStore) maxOf(spec.min, 1) else spec.min
         return when {
-            spec.zeroMeansStore && clamped == 0 -> CompressionMarker.STORE
-            clamped == spec.min && clamped > 0 -> CompressionMarker.FASTEST
-            clamped == spec.max && clamped != spec.min -> CompressionMarker.BEST
+            clamped == fastest -> CompressionMarker.FASTEST
+            clamped == spec.max -> CompressionMarker.BEST
             else -> CompressionMarker.PLAIN
         }
     }

@@ -123,18 +123,15 @@
     <string name="settings_category_archives">Archive settings</string>
     <string name="settings_category_archives_subtitle">Compression levels and defaults</string>
     <string name="settings_archives_section_general">Compression</string>
-    <string name="settings_archives_section_levels">Compression level per format</string>
     <string name="settings_archives_default_format">Default archive format</string>
     <string name="settings_archives_compression_level">Compression level</string>
-    <string name="settings_archives_level_summary">For %1$s</string>
+    <string name="settings_archives_level_summary">Set for each format</string>
     <string name="settings_archives_choose_format_title">Choose a format</string>
     <string name="settings_archives_choose_level_title">Compression level for %1$s</string>
     <string name="settings_archives_current_level">Current level: %1$s</string>
-    <string name="settings_archives_no_level_format">No compression level</string>
     <string name="settings_archives_level_hint">A higher level makes a smaller archive and takes longer.</string>
     <string name="settings_archives_marker_store">No compression</string>
     <string name="settings_archives_marker_fastest">Fastest</string>
     <string name="settings_archives_marker_best">Strongest</string>
-    <string name="settings_archives_marker_plain">Between fastest and strongest</string>
     <string name="settings_archives_tar_no_level">TAR only stores files, it has no compression level.</string>
 </resources>

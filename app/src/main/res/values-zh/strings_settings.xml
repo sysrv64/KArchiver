@@ -123,18 +123,15 @@
     <string name="settings_category_archives">压缩包设置</string>
     <string name="settings_category_archives_subtitle">压缩级别与默认格式</string>
     <string name="settings_archives_section_general">压缩</string>
-    <string name="settings_archives_section_levels">按格式设置压缩级别</string>
     <string name="settings_archives_default_format">默认压缩格式</string>
     <string name="settings_archives_compression_level">压缩级别</string>
-    <string name="settings_archives_level_summary">用于 %1$s</string>
+    <string name="settings_archives_level_summary">按格式设置</string>
     <string name="settings_archives_choose_format_title">选择格式</string>
     <string name="settings_archives_choose_level_title">%1$s 的压缩级别</string>
     <string name="settings_archives_current_level">当前级别：%1$s</string>
-    <string name="settings_archives_no_level_format">无可调压缩级别</string>
     <string name="settings_archives_level_hint">级别越高，压缩包越小，耗时越长。</string>
     <string name="settings_archives_marker_store">不压缩</string>
     <string name="settings_archives_marker_fastest">最快</string>
     <string name="settings_archives_marker_best">最强</string>
-    <string name="settings_archives_marker_plain">介于最快与最强之间</string>
     <string name="settings_archives_tar_no_level">TAR 仅打包文件，没有压缩级别。</string>
 </resources>

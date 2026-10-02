@@ -94,9 +94,9 @@ class CompressionLevelsTest {
     }
 
     @Test
-    fun markerIsNotStoreForFastestPresetsOnSevenZAndXz() {
-        assertEquals(CompressionMarker.PLAIN, CompressionLevels.marker(CompressFormat.SEVEN_Z, 0))
-        assertEquals(CompressionMarker.PLAIN, CompressionLevels.marker(CompressFormat.TAR_XZ, 0))
+    fun fastestPresetOnSevenZAndXzIsNotStore() {
+        assertEquals(CompressionMarker.FASTEST, CompressionLevels.marker(CompressFormat.SEVEN_Z, 0))
+        assertEquals(CompressionMarker.FASTEST, CompressionLevels.marker(CompressFormat.TAR_XZ, 0))
     }
 
     @Test
@@ -130,7 +130,13 @@ class CompressionLevelsTest {
         assertEquals(CompressionMarker.PLAIN, CompressionLevels.marker(CompressFormat.TAR_BZ2, 2))
         assertEquals(CompressionMarker.FASTEST, CompressionLevels.marker(CompressFormat.ZIP, 1))
         assertEquals(CompressionMarker.PLAIN, CompressionLevels.marker(CompressFormat.ZIP, 2))
-        assertEquals(CompressionMarker.PLAIN, CompressionLevels.marker(CompressFormat.RAR, 1))
+        assertEquals(
+            CompressionMarker.FASTEST,
+            CompressionLevels.marker(CompressFormat.RAR, 1)
+        )
+        assertEquals(CompressionMarker.PLAIN, CompressionLevels.marker(CompressFormat.RAR, 2))
+        assertEquals(CompressionMarker.FASTEST, CompressionLevels.marker(CompressFormat.TAR_GZ, 1))
+        assertEquals(CompressionMarker.PLAIN, CompressionLevels.marker(CompressFormat.TAR_GZ, 2))
     }
 
     @Test
@@ -155,9 +161,9 @@ class CompressionLevelsTest {
     @Test
     fun markerForSingleLevelSpecStaysSensible() {
         val fixed = CompressionLevelSpec(min = 7, max = 7, default = 7, zeroMeansStore = false)
-        assertEquals(CompressionMarker.FASTEST, CompressionLevels.markerOf(fixed, 7))
-        assertEquals(CompressionMarker.FASTEST, CompressionLevels.markerOf(fixed, 99))
-        assertEquals(CompressionMarker.FASTEST, CompressionLevels.markerOf(fixed, -1))
+        assertEquals(CompressionMarker.PLAIN, CompressionLevels.markerOf(fixed, 7))
+        assertEquals(CompressionMarker.PLAIN, CompressionLevels.markerOf(fixed, 99))
+        assertEquals(CompressionMarker.PLAIN, CompressionLevels.markerOf(fixed, -1))
         val singleZero = CompressionLevelSpec(min = 0, max = 0, default = 0, zeroMeansStore = true)
         assertEquals(CompressionMarker.STORE, CompressionLevels.markerOf(singleZero, 0))
         assertEquals(CompressionMarker.STORE, CompressionLevels.markerOf(singleZero, 5))
