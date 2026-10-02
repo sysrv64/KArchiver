@@ -37,8 +37,8 @@ android {
         applicationId = "com.kerneldroid.karchiver"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.3-beta"
+        versionCode = 4
+        versionName = "1.4-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
