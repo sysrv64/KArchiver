@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -48,6 +49,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,13 +74,10 @@ import com.kerneldroid.karchiver.data.history.HistorySection
 import com.kerneldroid.karchiver.data.history.HistoryTypeFilter
 import com.kerneldroid.karchiver.data.history.groupHistory
 import com.kerneldroid.karchiver.data.history.relativeTime
-import com.kerneldroid.karchiver.presentation.browser.BrowserViewModel
 import com.kerneldroid.karchiver.presentation.browser.copyPath
-import com.kerneldroid.karchiver.presentation.components.CreateFabMenu
-import com.kerneldroid.karchiver.presentation.components.CreateKind
-import com.kerneldroid.karchiver.presentation.components.CreateNameDialog
 import com.kerneldroid.karchiver.presentation.components.FileSearchField
 import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
+import com.kerneldroid.karchiver.presentation.components.ScrollTopButton
 import com.kerneldroid.karchiver.presentation.components.detectBarHold
 import java.io.File
 import kotlinx.coroutines.launch
@@ -119,7 +118,6 @@ private fun buildRows(sections: List<Pair<HistorySection, List<HistoryEntry>>>):
 
 @Composable
 fun HistoryScreen(
-    vm: BrowserViewModel,
     onBack: () -> Unit,
     onOpenEntry: (HistoryEntry) -> Boolean,
     barLifted: Boolean = false,
@@ -130,22 +128,22 @@ fun HistoryScreen(
     val haptics = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val historyVm: HistoryViewModel = viewModel()
-    val entries by historyVm.entries.collectAsStateWithLifecycle()
-    val hasAny by historyVm.hasAnyEntries.collectAsStateWithLifecycle()
-    val query by historyVm.queryText.collectAsStateWithLifecycle()
-    val filter by historyVm.filter.collectAsStateWithLifecycle()
-    val newestFirst by historyVm.sortNewestFirst.collectAsStateWithLifecycle()
+    val vm: HistoryViewModel = viewModel()
+    val entries by vm.entries.collectAsStateWithLifecycle()
+    val hasAny by vm.hasAnyEntries.collectAsStateWithLifecycle()
+    val query by vm.queryText.collectAsStateWithLifecycle()
+    val filter by vm.filter.collectAsStateWithLifecycle()
+    val newestFirst by vm.sortNewestFirst.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    val showScrollTop by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
     var searchActive by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var openMenu by remember { mutableStateOf<String?>(null) }
-    var fabExpanded by remember { mutableStateOf(false) }
-    var createKind by remember { mutableStateOf<CreateKind?>(null) }
 
     BackHandler {
         if (searchActive) {
             searchActive = false
-            historyVm.setQuery("")
+            vm.setQuery("")
         } else {
             onBack()
         }
@@ -164,7 +162,7 @@ fun HistoryScreen(
                     message = unavailableMessage,
                     actionLabel = removeLabel
                 )
-                if (result == SnackbarResult.ActionPerformed) historyVm.remove(entry.path)
+                if (result == SnackbarResult.ActionPerformed) vm.remove(entry.path)
             }
         }
     }
@@ -174,11 +172,9 @@ fun HistoryScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             if (!searchActive) {
-                CreateFabMenu(
-                    expanded = fabExpanded,
-                    onExpandedChange = { fabExpanded = it },
-                    onCreateFolder = { createKind = CreateKind.FOLDER },
-                    onCreateFile = { createKind = CreateKind.FILE }
+                ScrollTopButton(
+                    visible = showScrollTop,
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } }
                 )
             }
         },
@@ -187,10 +183,10 @@ fun HistoryScreen(
                 if (searchActive) {
                     FileSearchField(
                         query = query,
-                        onQueryChange = historyVm::setQuery,
+                        onQueryChange = vm::setQuery,
                         onClose = {
                             searchActive = false
-                            historyVm.setQuery("")
+                            vm.setQuery("")
                         },
                         placeholder = stringResource(R.string.library_history_search_hint)
                     )
@@ -236,13 +232,13 @@ fun HistoryScreen(
                         selected = filter == option,
                         onClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                            historyVm.setFilter(option)
+                            vm.setFilter(option)
                         },
                         label = { Text(filterLabel(option)) }
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = historyVm::toggleSort) {
+                IconButton(onClick = vm::toggleSort) {
                     Icon(
                         Icons.Filled.Sort,
                         if (newestFirst) stringResource(R.string.library_desc_newest_first) else stringResource(R.string.library_desc_oldest_first)
@@ -253,6 +249,7 @@ fun HistoryScreen(
                 HistoryEmptyState(hasAny = hasAny)
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
@@ -278,7 +275,7 @@ fun HistoryScreen(
                                         val copiedMessage = context.resources.getString(R.string.library_history_path_copied)
                                         scope.launch { snackbar.showSnackbar(copiedMessage) }
                                     },
-                                    onRemove = { historyVm.remove(row.entry.path) }
+                                    onRemove = { vm.remove(row.entry.path) }
                                 )
                             }
                         }
@@ -297,7 +294,7 @@ fun HistoryScreen(
                 Button(
                     onClick = {
                         confirmClear = false
-                        historyVm.clear()
+                        vm.clear()
                         val clearedMessage = context.resources.getString(R.string.library_history_cleared)
                         scope.launch { snackbar.showSnackbar(clearedMessage) }
                     },
@@ -315,36 +312,6 @@ fun HistoryScreen(
         )
     }
 
-    createKind?.let { kind ->
-        CreateNameDialog(
-            kind = kind,
-            onConfirm = { name ->
-                createKind = null
-                if (kind == CreateKind.FOLDER) {
-                    vm.createFolder(name) { r ->
-                        scope.launch {
-                            snackbar.showSnackbar(
-                                context.getString(
-                                    if (r.isSuccess) R.string.browser_folder_created else R.string.browser_create_folder_failed
-                                )
-                            )
-                        }
-                    }
-                } else {
-                    vm.createFile(name) { r ->
-                        scope.launch {
-                            snackbar.showSnackbar(
-                                context.getString(
-                                    if (r.isSuccess) R.string.browser_file_created else R.string.browser_create_file_failed
-                                )
-                            )
-                        }
-                    }
-                }
-            },
-            onDismiss = { createKind = null }
-        )
-    }
 }
 
 @Composable

@@ -97,6 +97,7 @@ import com.kerneldroid.karchiver.presentation.components.CreateKind
 import com.kerneldroid.karchiver.presentation.components.CreateNameDialog
 import com.kerneldroid.karchiver.presentation.components.FileSearchField
 import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
+import com.kerneldroid.karchiver.presentation.components.ScrollTopButton
 import com.kerneldroid.karchiver.presentation.components.detectBarHold
 import com.kerneldroid.karchiver.data.storage.AppVolume
 import com.kerneldroid.karchiver.data.storage.VolumeKind
@@ -328,6 +329,7 @@ fun BrowserScreen(
                     if (!fabMenuExpanded && fabMenuHeight <= fabMenuCollapsedHeight) {
                         ScrollTopButton(
                             visible = showScrollTop,
+                            modifier = Modifier.padding(end = FabMenuEdgeInset),
                             onClick = {
                                 scope.launch {
                                     if (state.viewMode == ViewMode.LIST) {
@@ -1208,41 +1210,6 @@ fun BrowserScreen(
             },
             onDismiss = { createKind = null }
         )
-    }
-}
-
-@Composable
-private fun ScrollTopButton(visible: Boolean, onClick: () -> Unit) {
-    val motionScheme = MaterialTheme.motionScheme
-    AnimatedVisibility(
-        visible = visible,
-        enter = slideInVertically(
-            initialOffsetY = { it },
-            animationSpec = motionScheme.fastSpatialSpec()
-        ) + scaleIn(
-            initialScale = 0.8f,
-            animationSpec = motionScheme.fastSpatialSpec()
-        ) + fadeIn(
-            animationSpec = motionScheme.fastEffectsSpec()
-        ),
-        exit = slideOutVertically(
-            targetOffsetY = { it },
-            animationSpec = motionScheme.fastSpatialSpec()
-        ) + scaleOut(
-            targetScale = 0.8f,
-            animationSpec = motionScheme.fastSpatialSpec()
-        ) + fadeOut(
-            animationSpec = motionScheme.fastEffectsSpec()
-        )
-    ) {
-        SmallFloatingActionButton(
-            onClick = onClick,
-            modifier = Modifier.padding(end = FabMenuEdgeInset),
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-        ) {
-            Icon(Icons.Filled.KeyboardArrowUp, stringResource(R.string.browser_scroll_to_top))
-        }
     }
 }
 

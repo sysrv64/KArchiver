@@ -628,7 +628,6 @@ fun KArchiverRoot(
         }
         composable(RootRoute.HISTORY) {
             HistoryScreen(
-                vm = vm,
                 onBack = { navController.popBackStack() },
                 onOpenEntry = ::openHistoryEntry,
                 barLifted = barLifted,
@@ -637,7 +636,6 @@ fun KArchiverRoot(
         }
         composable(RootRoute.TRASH) {
             TrashScreen(
-                vm = vm,
                 onBack = { navController.popBackStack() },
                 elevationMode = settings?.elevationMode ?: "off",
                 barLifted = barLifted,

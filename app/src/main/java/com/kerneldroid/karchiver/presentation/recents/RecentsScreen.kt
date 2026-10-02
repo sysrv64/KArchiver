@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -27,12 +28,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedListItem
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,10 +55,8 @@ import com.kerneldroid.karchiver.data.FormatRegistry
 import com.kerneldroid.karchiver.data.formatBytes
 import com.kerneldroid.karchiver.data.history.relativeTime
 import com.kerneldroid.karchiver.presentation.browser.BrowserViewModel
-import com.kerneldroid.karchiver.presentation.components.CreateFabMenu
-import com.kerneldroid.karchiver.presentation.components.CreateKind
-import com.kerneldroid.karchiver.presentation.components.CreateNameDialog
 import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
+import com.kerneldroid.karchiver.presentation.components.ScrollTopButton
 import com.kerneldroid.karchiver.presentation.components.detectBarHold
 import kotlinx.coroutines.launch
 
@@ -73,14 +71,13 @@ fun RecentsScreen(
     BackHandler { onBack() }
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
-    val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val showScrollTop by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
     val items by vm.recents.collectAsStateWithLifecycle()
     val scanning by vm.recentsScanning.collectAsStateWithLifecycle()
     val scanned by vm.recentsScanned.collectAsStateWithLifecycle()
     val capped by vm.recentsCapped.collectAsStateWithLifecycle()
-    var fabExpanded by remember { mutableStateOf(false) }
-    var createKind by remember { mutableStateOf<CreateKind?>(null) }
 
     LaunchedEffect(Unit) { vm.loadRecents() }
 
@@ -106,13 +103,10 @@ fun RecentsScreen(
 
     RoundedTopScaffold(
         barLifted = barLifted,
-        snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            CreateFabMenu(
-                expanded = fabExpanded,
-                onExpandedChange = { fabExpanded = it },
-                onCreateFolder = { createKind = CreateKind.FOLDER },
-                onCreateFile = { createKind = CreateKind.FILE }
+            ScrollTopButton(
+                visible = showScrollTop,
+                onClick = { scope.launch { listState.animateScrollToItem(0) } }
             )
         },
         topBar = {
@@ -164,6 +158,7 @@ fun RecentsScreen(
                 RecentsEmptyState()
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
@@ -180,37 +175,6 @@ fun RecentsScreen(
                 }
             }
         }
-    }
-
-    createKind?.let { kind ->
-        CreateNameDialog(
-            kind = kind,
-            onConfirm = { name ->
-                createKind = null
-                if (kind == CreateKind.FOLDER) {
-                    vm.createFolder(name) { r ->
-                        scope.launch {
-                            snackbar.showSnackbar(
-                                context.getString(
-                                    if (r.isSuccess) R.string.browser_folder_created else R.string.browser_create_folder_failed
-                                )
-                            )
-                        }
-                    }
-                } else {
-                    vm.createFile(name) { r ->
-                        scope.launch {
-                            snackbar.showSnackbar(
-                                context.getString(
-                                    if (r.isSuccess) R.string.browser_file_created else R.string.browser_create_file_failed
-                                )
-                            )
-                        }
-                    }
-                }
-            },
-            onDismiss = { createKind = null }
-        )
     }
 }
 

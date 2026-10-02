@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -39,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,18 +61,14 @@ import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.formatBytes
 import com.kerneldroid.karchiver.data.history.relativeTime
 import com.kerneldroid.karchiver.data.trash.TrashEntry
-import com.kerneldroid.karchiver.presentation.browser.BrowserViewModel
-import com.kerneldroid.karchiver.presentation.components.CreateFabMenu
-import com.kerneldroid.karchiver.presentation.components.CreateKind
-import com.kerneldroid.karchiver.presentation.components.CreateNameDialog
 import com.kerneldroid.karchiver.presentation.components.FileSearchField
 import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
+import com.kerneldroid.karchiver.presentation.components.ScrollTopButton
 import com.kerneldroid.karchiver.presentation.components.detectBarHold
 import kotlinx.coroutines.launch
 
 @Composable
 fun TrashScreen(
-    vm: BrowserViewModel,
     onBack: () -> Unit,
     elevationMode: String = "off",
     barLifted: Boolean = false,
@@ -80,15 +78,15 @@ fun TrashScreen(
     val haptics = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val trashVm: TrashViewModel = viewModel()
-    val entries by trashVm.entries.collectAsStateWithLifecycle()
-    val missing by trashVm.missing.collectAsStateWithLifecycle()
-    val busy by trashVm.busy.collectAsStateWithLifecycle()
-    val hasAny by trashVm.hasAnyEntries.collectAsStateWithLifecycle()
-    val query by trashVm.queryText.collectAsStateWithLifecycle()
+    val vm: TrashViewModel = viewModel()
+    val entries by vm.entries.collectAsStateWithLifecycle()
+    val missing by vm.missing.collectAsStateWithLifecycle()
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val hasAny by vm.hasAnyEntries.collectAsStateWithLifecycle()
+    val query by vm.queryText.collectAsStateWithLifecycle()
     var searchActive by remember { mutableStateOf(false) }
-    var fabExpanded by remember { mutableStateOf(false) }
-    var createKind by remember { mutableStateOf<CreateKind?>(null) }
+    val listState = rememberLazyListState()
+    val showScrollTop by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
     var confirmEmpty by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<TrashEntry?>(null) }
 
@@ -98,7 +96,7 @@ fun TrashScreen(
     BackHandler {
         if (searchActive) {
             searchActive = false
-            trashVm.setQuery("")
+            vm.setQuery("")
         } else {
             onBack()
         }
@@ -106,7 +104,7 @@ fun TrashScreen(
 
     fun restore(entry: TrashEntry) {
         haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-        trashVm.restore(entry, elevationMode) { result ->
+        vm.restore(entry, elevationMode) { result ->
             result.fold(
                 onSuccess = { name ->
                     val message = if (name == entry.name) context.resources.getString(R.string.library_trash_restored, entry.name)
@@ -124,7 +122,7 @@ fun TrashScreen(
     }
 
     fun deleteForever(entry: TrashEntry) {
-        trashVm.deleteForever(entry, elevationMode) { result ->
+        vm.deleteForever(entry, elevationMode) { result ->
             val message = result.fold(
                 onSuccess = { context.resources.getString(R.string.library_trash_deleted) },
                 onFailure = { e -> e.message ?: context.resources.getString(R.string.library_trash_delete_failed) }
@@ -140,11 +138,9 @@ fun TrashScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             if (!searchActive) {
-                CreateFabMenu(
-                    expanded = fabExpanded,
-                    onExpandedChange = { fabExpanded = it },
-                    onCreateFolder = { createKind = CreateKind.FOLDER },
-                    onCreateFile = { createKind = CreateKind.FILE }
+                ScrollTopButton(
+                    visible = showScrollTop,
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } }
                 )
             }
         },
@@ -153,10 +149,10 @@ fun TrashScreen(
                 if (searchActive) {
                     FileSearchField(
                         query = query,
-                        onQueryChange = trashVm::setQuery,
+                        onQueryChange = vm::setQuery,
                         onClose = {
                             searchActive = false
-                            trashVm.setQuery("")
+                            vm.setQuery("")
                         },
                         placeholder = stringResource(R.string.library_trash_search_hint)
                     )
@@ -207,6 +203,7 @@ fun TrashScreen(
                     modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 4.dp)
                 )
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
@@ -240,7 +237,7 @@ fun TrashScreen(
                 Button(
                     onClick = {
                         confirmEmpty = false
-                        trashVm.empty(elevationMode) { result ->
+                        vm.empty(elevationMode) { result ->
                             val message = result.fold(
                                 onSuccess = { context.resources.getString(R.string.library_trash_emptied) },
                                 onFailure = { e -> e.message ?: context.resources.getString(R.string.library_trash_empty_failed) }
@@ -289,30 +286,6 @@ fun TrashScreen(
         )
     }
 
-    createKind?.let { kind ->
-        CreateNameDialog(
-            kind = kind,
-            onConfirm = { name ->
-                createKind = null
-                if (kind == CreateKind.FOLDER) {
-                    vm.createFolder(name) { result ->
-                        val message = context.resources.getString(
-                            if (result.isSuccess) R.string.browser_folder_created else R.string.browser_create_folder_failed
-                        )
-                        scope.launch { snackbar.showSnackbar(message) }
-                    }
-                } else {
-                    vm.createFile(name) { result ->
-                        val message = context.resources.getString(
-                            if (result.isSuccess) R.string.browser_file_created else R.string.browser_create_file_failed
-                        )
-                        scope.launch { snackbar.showSnackbar(message) }
-                    }
-                }
-            },
-            onDismiss = { createKind = null }
-        )
-    }
 }
 
 @Composable
