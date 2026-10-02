@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use karchiver_rs::backend;
+use karchiver_rs::backend::CompressionOptions;
 use karchiver_rs::format::Format;
 use karchiver_rs::io_util::Limits;
 use tempfile::tempdir;
@@ -121,7 +122,14 @@ fn rar_pack_list_extract_roundtrip() {
     fs::write(src.join("hello.txt"), b"packed hello").unwrap();
     fs::write(src.join("sub/nested.bin"), [1u8, 2, 3, 250]).unwrap();
     let dest = dir.path().join("packed.rar");
-    backend::compress(&[src], &dest, Format::Rar, &Limits::default()).unwrap();
+    backend::compress(
+        &[src],
+        &dest,
+        Format::Rar,
+        &Limits::default(),
+        &CompressionOptions::default(),
+    )
+    .unwrap();
     let names = backend::list(&dest, Format::Rar).unwrap();
     assert!(names.iter().any(|e| e.ends_with("hello.txt")));
     assert!(names.iter().any(|e| e.ends_with("nested.bin")));
@@ -145,8 +153,15 @@ fn rar_pack_with_password_roundtrip() {
     let src = dir.path().join("secret.txt");
     fs::write(&src, b"packed secret").unwrap();
     let dest = dir.path().join("locked.rar");
-    backend::compress_with_password(&[src], &dest, Format::Rar, &Limits::default(), "karchiver")
-        .unwrap();
+    backend::compress_with_password(
+        &[src],
+        &dest,
+        Format::Rar,
+        &Limits::default(),
+        "karchiver",
+        &CompressionOptions::default(),
+    )
+    .unwrap();
     let listing = backend::list_detailed(&dest, Format::Rar).unwrap();
     assert!(listing.encrypted);
     let out = dir.path().join("out");
@@ -168,6 +183,7 @@ fn rar_pack_empty_dir_fails_cleanly() {
         &dir.path().join("out.rar"),
         Format::Rar,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap_err();
     assert!(err.to_string().contains("no files"), "{err}");

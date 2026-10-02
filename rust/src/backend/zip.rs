@@ -6,7 +6,10 @@ use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use crate::backend::collect_sources;
-use crate::backend::{ContentMatch, PreviewEntry, PreviewListing, TestFailure, TestReport};
+use crate::backend::{
+    CompressionOptions, ContentMatch, LevelScale, PreviewEntry, PreviewListing, TestFailure,
+    TestReport,
+};
 use crate::content_search::Scanner;
 use crate::error::{ArchiveError, Result, classify_io};
 use crate::io_util::{
@@ -288,19 +291,27 @@ fn map_open_err(e: ZipError) -> ArchiveError {
     }
 }
 
-fn file_options() -> SimpleFileOptions {
-    SimpleFileOptions::default()
+fn file_options(level: Option<i32>) -> SimpleFileOptions {
+    let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .unix_permissions(0o644)
-        .large_file(true)
+        .large_file(true);
+    match level {
+        Some(level) => options.compression_level(Some(i64::from(level))),
+        None => options,
+    }
 }
 
-fn file_options_encrypted(password: &[u8]) -> FileOptions<'_, ()> {
-    SimpleFileOptions::default()
+fn file_options_encrypted(password: &[u8], level: Option<i32>) -> FileOptions<'_, ()> {
+    let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .unix_permissions(0o644)
         .large_file(true)
-        .with_aes_encryption_bytes(AesMode::Aes256, password)
+        .with_aes_encryption_bytes(AesMode::Aes256, password);
+    match level {
+        Some(level) => options.compression_level(Some(i64::from(level))),
+        None => options,
+    }
 }
 
 fn dir_options() -> SimpleFileOptions {
@@ -340,8 +351,13 @@ fn millis_to_zip_datetime(millis: u64) -> DateTime {
 }
 
 /// Compress `sources` into a ZIP file at `dest` (written atomically).
-pub fn compress(sources: &[PathBuf], dest: &Path, limits: &Limits) -> Result<()> {
-    compress_impl(sources, dest, limits, None)
+pub fn compress(
+    sources: &[PathBuf],
+    dest: &Path,
+    limits: &Limits,
+    options: &CompressionOptions,
+) -> Result<()> {
+    compress_impl(sources, dest, limits, None, options)
 }
 
 pub fn compress_with_password(
@@ -349,11 +365,12 @@ pub fn compress_with_password(
     dest: &Path,
     limits: &Limits,
     password: &[u8],
+    options: &CompressionOptions,
 ) -> Result<()> {
     if password.is_empty() {
-        return compress_impl(sources, dest, limits, None);
+        return compress_impl(sources, dest, limits, None, options);
     }
-    compress_impl(sources, dest, limits, Some(password))
+    compress_impl(sources, dest, limits, Some(password), options)
 }
 
 fn compress_impl(
@@ -361,6 +378,7 @@ fn compress_impl(
     dest: &Path,
     limits: &Limits,
     password: Option<&[u8]>,
+    options: &CompressionOptions,
 ) -> Result<()> {
     let af = AtomicFile::new(dest)?;
     let entries = collect_sources(sources, &[dest, af.path()], limits)?;
@@ -370,6 +388,7 @@ fn compress_impl(
         .open(af.path())?;
     let mut writer = ZipWriter::new(BufWriter::new(file));
     let mut state = LimitState::new(limits);
+    let level = options.level_for(LevelScale::ZipDeflate);
 
     for e in &entries {
         check_cancelled()?;
@@ -382,10 +401,10 @@ fn compress_impl(
         state.begin_entry(&e.name, Some(e.size))?;
         match password {
             Some(pw) => writer
-                .start_file(e.name.clone(), file_options_encrypted(pw))
+                .start_file(e.name.clone(), file_options_encrypted(pw, level))
                 .map_err(ArchiveError::backend)?,
             None => writer
-                .start_file(e.name.clone(), file_options())
+                .start_file(e.name.clone(), file_options(level))
                 .map_err(ArchiveError::backend)?,
         }
         let allowance = state.allowance(Some(e.size));
@@ -1315,12 +1334,12 @@ pub fn add_files(
         match pw {
             Some(p) => {
                 writer
-                    .start_file(a.name.clone(), file_options_encrypted(p))
+                    .start_file(a.name.clone(), file_options_encrypted(p, None))
                     .map_err(ArchiveError::backend)?;
             }
             None => {
                 writer
-                    .start_file(a.name.clone(), file_options())
+                    .start_file(a.name.clone(), file_options(None))
                     .map_err(ArchiveError::backend)?;
             }
         }
@@ -1452,6 +1471,7 @@ mod edit_tests {
             &dest,
             Format::Zip,
             &Limits::default(),
+            &CompressionOptions::default(),
         )
         .unwrap();
         dest
@@ -1540,6 +1560,7 @@ mod edit_tests {
             Format::Zip,
             &Limits::default(),
             "pw123",
+            &CompressionOptions::default(),
         )
         .unwrap();
         let before = raw_entry_info(&dest, "src/b.txt");
@@ -1647,6 +1668,7 @@ mod edit_tests {
             Format::Zip,
             &Limits::default(),
             "pw123",
+            &CompressionOptions::default(),
         )
         .unwrap();
         crate::backend::delete_entries_with_password(

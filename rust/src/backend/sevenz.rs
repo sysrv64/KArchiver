@@ -10,7 +10,8 @@ use sevenz_rust2::{ArchiveEntry, ArchiveReader, ArchiveWriter, NtTime, Password,
 
 use crate::backend::collect_sources;
 use crate::backend::{
-    ContentMatch, PreviewEntry, PreviewListing, SourceEntry, TestFailure, TestReport,
+    CompressionOptions, ContentMatch, LevelScale, PreviewEntry, PreviewListing, SourceEntry,
+    TestFailure, TestReport,
 };
 use crate::content_search::Scanner;
 use crate::error::{ArchiveError, CANCEL_MARKER, LIMIT_MARKER, Result, classify_io};
@@ -61,8 +62,13 @@ fn password_of(password: &str) -> (Password, bool) {
     }
 }
 
-pub fn compress(sources: &[PathBuf], dest: &Path, limits: &Limits) -> Result<()> {
-    compress_impl(sources, dest, limits, None)
+pub fn compress(
+    sources: &[PathBuf],
+    dest: &Path,
+    limits: &Limits,
+    options: &CompressionOptions,
+) -> Result<()> {
+    compress_impl(sources, dest, limits, None, options)
 }
 
 pub fn compress_with_password(
@@ -70,11 +76,12 @@ pub fn compress_with_password(
     dest: &Path,
     limits: &Limits,
     password: &str,
+    options: &CompressionOptions,
 ) -> Result<()> {
     if password.is_empty() {
-        return compress_impl(sources, dest, limits, None);
+        return compress_impl(sources, dest, limits, None, options);
     }
-    compress_impl(sources, dest, limits, Some(password))
+    compress_impl(sources, dest, limits, Some(password), options)
 }
 
 const SOLID_MAX_FILES: usize = 128;
@@ -82,12 +89,15 @@ const SOLID_MAX_BYTES: u64 = 16 * 1024 * 1024;
 const READ_BUF_CAP: usize = 65536;
 const MT_CHUNK_BYTES: u64 = 4 * 1024 * 1024;
 
-fn lzma2_options() -> Lzma2Options {
+const LZMA2_DEFAULT_LEVEL: i32 = 5;
+
+fn lzma2_options(level: Option<i32>) -> Lzma2Options {
     let threads = std::thread::available_parallelism()
         .map(|n| n.get() as u32)
         .unwrap_or(2)
         .clamp(1, 8);
-    Lzma2Options::from_level_mt(5, threads, MT_CHUNK_BYTES)
+    let level = level.unwrap_or(LZMA2_DEFAULT_LEVEL);
+    Lzma2Options::from_level_mt(level as u32, threads, MT_CHUNK_BYTES)
 }
 
 fn flush_solid_batch(
@@ -114,18 +124,20 @@ fn compress_impl(
     dest: &Path,
     limits: &Limits,
     password: Option<&str>,
+    options: &CompressionOptions,
 ) -> Result<()> {
     let af = AtomicFile::new(dest)?;
     let entries = collect_sources(sources, &[dest, af.path()], limits)?;
     let mut state = LimitState::new(limits);
     let mut writer = ArchiveWriter::create(af.path()).map_err(map_err)?;
+    let level = lzma2_options(options.level_for(LevelScale::Lzma));
     if let Some(pw) = password {
         writer.set_content_methods(vec![
             AesEncoderOptions::new(Password::new(pw)).into(),
-            lzma2_options().into(),
+            level.into(),
         ]);
     } else {
-        writer.set_content_methods(vec![lzma2_options().into()]);
+        writer.set_content_methods(vec![level.into()]);
     }
 
     let mut batch_entries: Vec<ArchiveEntry> = Vec::new();
@@ -743,10 +755,10 @@ fn edit_impl(
     if let Some(pw) = password.filter(|p| !p.is_empty()) {
         writer.set_content_methods(vec![
             AesEncoderOptions::new(Password::new(pw)).into(),
-            lzma2_options().into(),
+            lzma2_options(None).into(),
         ]);
     } else {
-        writer.set_content_methods(vec![lzma2_options().into()]);
+        writer.set_content_methods(vec![lzma2_options(None).into()]);
     }
     progress_reset(existing.len() as u64 + additions.len() as u64);
 
@@ -1092,6 +1104,7 @@ mod edit_tests {
             &dest,
             Format::SevenZ,
             &Limits::default(),
+            &CompressionOptions::default(),
         )
         .unwrap();
         dest
@@ -1272,6 +1285,7 @@ mod edit_tests {
             Format::SevenZ,
             &Limits::default(),
             PASSWORD,
+            &CompressionOptions::default(),
         )
         .unwrap();
         crate::backend::delete_entries_with_password(
@@ -1320,6 +1334,7 @@ mod edit_tests {
             Format::SevenZ,
             &Limits::default(),
             PASSWORD,
+            &CompressionOptions::default(),
         )
         .unwrap();
         crate::backend::rename_entry_with_password(
@@ -1359,6 +1374,7 @@ mod edit_tests {
             Format::SevenZ,
             &Limits::default(),
             PASSWORD,
+            &CompressionOptions::default(),
         )
         .unwrap();
         let extra = dir.path().join("extra.txt");
@@ -1403,6 +1419,7 @@ mod edit_tests {
             Format::SevenZ,
             &Limits::default(),
             PASSWORD,
+            &CompressionOptions::default(),
         )
         .unwrap();
         match crate::backend::delete_entries(&dest, Format::SevenZ, &["src/a.txt".to_string()]) {

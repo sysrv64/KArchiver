@@ -20,12 +20,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,10 +38,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.OpenInNew
@@ -64,6 +69,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -100,7 +106,12 @@ import com.kerneldroid.karchiver.BuildConfig
 import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.AppSettings
 import com.kerneldroid.karchiver.data.AppLanguage
+import com.kerneldroid.karchiver.data.CompressFormat
+import com.kerneldroid.karchiver.data.CompressionLevels
+import com.kerneldroid.karchiver.data.CompressionMarker
 import com.kerneldroid.karchiver.data.LocaleStore
+import com.kerneldroid.karchiver.data.compressionLevel
+import com.kerneldroid.karchiver.data.defaultCompressFormatEnum
 import com.kerneldroid.karchiver.data.findActivity
 import com.kerneldroid.karchiver.data.log.LogReport
 import com.kerneldroid.karchiver.data.SettingsRepository
@@ -158,7 +169,8 @@ enum class SettingsCategory(
     SEARCH("settings/search", R.string.settings_category_search, R.string.settings_category_search_subtitle, Icons.Filled.Search),
     STORAGE("settings/storage", R.string.settings_category_storage, R.string.settings_category_storage_subtitle, Icons.Filled.Storage),
     ELEVATION("settings/elevation", R.string.settings_category_elevation, R.string.settings_category_elevation_subtitle, Icons.Filled.Security),
-    ABOUT("settings/about", R.string.settings_category_about, R.string.settings_category_about_subtitle, Icons.Filled.Info)
+    ABOUT("settings/about", R.string.settings_category_about, R.string.settings_category_about_subtitle, Icons.Filled.Info),
+    ARCHIVES("settings/archives", R.string.settings_category_archives, R.string.settings_category_archives_subtitle, Icons.Filled.FolderZip)
 }
 
 @Composable
@@ -1209,5 +1221,171 @@ private fun SettingSwitch(
         onLongClick = onLongClick
     ) {
         Text(title)
+    }
+}
+
+@Composable
+private fun compressionMarkerLabel(marker: CompressionMarker): String = when (marker) {
+    CompressionMarker.STORE -> stringResource(R.string.settings_archives_marker_store)
+    CompressionMarker.FASTEST -> stringResource(R.string.settings_archives_marker_fastest)
+    CompressionMarker.BEST -> stringResource(R.string.settings_archives_marker_best)
+    CompressionMarker.PLAIN -> ""
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun SettingsArchivesScreen(
+    settings: AppSettings,
+    repo: SettingsRepository,
+    onBack: () -> Unit,
+    barLifted: Boolean = false,
+    onToggleBar: () -> Unit = {}
+) {
+    val scope = rememberCoroutineScope()
+    val formats = CompressionLevels.supportedFormats()
+    val defaultFormat = settings.defaultCompressFormatEnum()
+    var showFormatPicker by remember { mutableStateOf(false) }
+    var levelFormat by remember { mutableStateOf<CompressFormat?>(null) }
+    val levelRowCount = formats.size + 1
+
+    SettingsScaffold(stringResource(R.string.settings_category_archives), onBack, barLifted, onToggleBar) {
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            SectionHeader(stringResource(R.string.settings_archives_section_general))
+            SegmentedListItem(
+                onClick = { showFormatPicker = true },
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = { Icon(Icons.Filled.FolderZip, null) },
+                supportingContent = { Text(defaultFormat.label) },
+                trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
+            ) {
+                Text(stringResource(R.string.settings_archives_default_format))
+            }
+
+            SectionHeader(stringResource(R.string.settings_archives_section_levels))
+            SegmentedListItem(
+                onClick = { showFormatPicker = true },
+                shapes = ListItemDefaults.segmentedShapes(index = 0, count = levelRowCount),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = { Icon(Icons.Filled.Compress, null) },
+                supportingContent = {
+                    Text(stringResource(R.string.settings_archives_level_summary, defaultFormat.label))
+                },
+                trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
+            ) {
+                Text(stringResource(R.string.settings_archives_compression_level))
+            }
+
+            formats.forEachIndexed { index, format ->
+                val level = settings.compressionLevel(format)
+                val marker = compressionMarkerLabel(CompressionLevels.marker(format, level))
+                SegmentedListItem(
+                    onClick = { levelFormat = format },
+                    shapes = ListItemDefaults.segmentedShapes(index = index + 1, count = levelRowCount),
+                    colors = ListItemDefaults.segmentedColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    supportingContent = {
+                        Text(
+                            if (marker.isEmpty()) "$level" else "$level · $marker"
+                        )
+                    },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, null) }
+                ) {
+                    Text(format.label)
+                }
+            }
+
+            Text(
+                stringResource(R.string.settings_archives_tar_no_level),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    if (showFormatPicker) {
+        AlertDialog(
+            onDismissRequest = { showFormatPicker = false },
+            icon = { Icon(Icons.Filled.Compress, null) },
+            title = { Text(stringResource(R.string.settings_archives_choose_format_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CompressFormat.entries.forEach { format ->
+                        val selected = format == defaultFormat
+                        val level = CompressionLevels.spec(format)?.let { settings.compressionLevel(format) }
+                        ElevationOption(
+                            selected = selected,
+                            title = format.label,
+                            subtitle = if (level == null) {
+                                stringResource(R.string.settings_archives_no_level_format)
+                            } else {
+                                stringResource(R.string.settings_archives_current_level, "$level")
+                            },
+                            onSelect = {
+                                scope.launch { repo.setDefaultCompressFormat(format) }
+                                showFormatPicker = false
+                            }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFormatPicker = false }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            }
+        )
+    }
+
+    levelFormat?.let { format ->
+        val spec = CompressionLevels.spec(format)
+        if (spec != null) {
+            val current = settings.compressionLevel(format)
+            AlertDialog(
+                onDismissRequest = { levelFormat = null },
+                icon = { Icon(Icons.Filled.Compress, null) },
+                title = {
+                    Text(stringResource(R.string.settings_archives_choose_level_title, format.label))
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            stringResource(R.string.settings_archives_level_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        LazyColumn(
+                            modifier = Modifier.heightIn(max = 320.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            items((spec.min..spec.max).toList()) { level ->
+                                val marker = compressionMarkerLabel(CompressionLevels.marker(format, level))
+                                ElevationOption(
+                                    selected = level == current,
+                                    title = "$level",
+                                    subtitle = marker.ifEmpty {
+                                        stringResource(R.string.settings_archives_marker_plain)
+                                    },
+                                    onSelect = {
+                                        scope.launch { repo.setCompressionLevel(format, level) }
+                                        levelFormat = null
+                                    }
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { levelFormat = null }) {
+                        Text(stringResource(R.string.action_close))
+                    }
+                }
+            )
+        }
     }
 }

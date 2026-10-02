@@ -16,7 +16,8 @@ use rars::{
 };
 
 use crate::backend::{
-    ContentMatch, PreviewEntry, PreviewListing, TestFailure, TestReport, collect_sources,
+    CompressionOptions, ContentMatch, LevelScale, PreviewEntry, PreviewListing, TestFailure,
+    TestReport, collect_sources,
 };
 use crate::content_search::Scanner;
 use crate::error::{ArchiveError, CANCEL_MARKER, LIMIT_MARKER, Result, classify_io};
@@ -219,8 +220,13 @@ impl WriteProgress for CancelProgress {
     }
 }
 
-pub fn compress(sources: &[PathBuf], dest: &Path, limits: &Limits) -> Result<()> {
-    compress_impl(sources, dest, limits, None)
+pub fn compress(
+    sources: &[PathBuf],
+    dest: &Path,
+    limits: &Limits,
+    options: &CompressionOptions,
+) -> Result<()> {
+    compress_impl(sources, dest, limits, None, options)
 }
 
 pub fn compress_with_password(
@@ -228,11 +234,12 @@ pub fn compress_with_password(
     dest: &Path,
     limits: &Limits,
     password: &[u8],
+    options: &CompressionOptions,
 ) -> Result<()> {
     if password.is_empty() {
-        return compress_impl(sources, dest, limits, None);
+        return compress_impl(sources, dest, limits, None, options);
     }
-    compress_impl(sources, dest, limits, Some(password))
+    compress_impl(sources, dest, limits, Some(password), options)
 }
 
 fn compress_impl(
@@ -240,6 +247,7 @@ fn compress_impl(
     dest: &Path,
     limits: &Limits,
     password: Option<&[u8]>,
+    options: &CompressionOptions,
 ) -> Result<()> {
     let af = AtomicFile::new(dest)?;
     let entries = collect_sources(sources, &[dest, af.path()], limits)?;
@@ -249,6 +257,9 @@ fn compress_impl(
     let mut builder = Builder::new(ArchiveVersion::Rar50);
     if let Some(pw) = password {
         builder = builder.password(Some(pw.to_vec()));
+    }
+    if let Some(level) = options.level_for(LevelScale::Rar) {
+        builder = builder.compression_level(Some(level as u8));
     }
     for e in &entries {
         check_cancelled()?;

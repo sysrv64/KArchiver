@@ -81,10 +81,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
+import com.kerneldroid.karchiver.data.AppSettings
 import com.kerneldroid.karchiver.data.CompressFormat
+import com.kerneldroid.karchiver.data.CompressionLevels
 import com.kerneldroid.karchiver.data.FileItem
 import com.kerneldroid.karchiver.data.FormatRegistry
+import com.kerneldroid.karchiver.data.SettingsRepository
 import com.kerneldroid.karchiver.data.archive.TaskManager
+import com.kerneldroid.karchiver.data.compressionLevel
+import com.kerneldroid.karchiver.data.defaultCompressFormatEnum
 import com.kerneldroid.karchiver.data.isRarArchive
 import com.kerneldroid.karchiver.data.nameWithoutArchiveExtension
 import com.kerneldroid.karchiver.data.normalizeArchiveName
@@ -114,6 +119,8 @@ fun ArchiveExplorerRoute(
     val quoteCopyPath = LocalQuoteCopyPath.current
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val settingsRepo = remember(context) { SettingsRepository(context.applicationContext) }
+    val settings by settingsRepo.settings.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
 
@@ -717,7 +724,7 @@ fun ArchiveExplorerRoute(
         }
         val defaultName = stringResource(R.string.archive_default_name_pattern, firstBase)
         var name by rememberSaveable(firstBase) { mutableStateOf(defaultName) }
-        var format by remember { mutableStateOf(CompressFormat.ZIP) }
+        var format by remember { mutableStateOf(defaultCompressFormatFor(settings)) }
         var compressPassword by remember { mutableStateOf("") }
         var formatMenu by remember { mutableStateOf(false) }
         val finalName = normalizeArchiveName(name.ifBlank { defaultBase }, format)
@@ -779,7 +786,7 @@ fun ArchiveExplorerRoute(
                             } ?: emptyList()
                             if (files.isNotEmpty()) {
                                 val dest = File(archive.parentFile, chosenName)
-                                compressTaskId = TaskManager.startCompress(context, files, dest, chosenFormat, chosenPassword.ifEmpty { null }, "off")
+                                compressTaskId = TaskManager.startCompress(context, files, dest, chosenFormat, chosenPassword.ifEmpty { null }, "off", level = compressionLevelFor(settings, chosenFormat))
                                 compressStage = staging
                                 compressRunning = true
                             } else {
@@ -868,6 +875,17 @@ private fun uniqueChild(dir: File, name: String): File {
         candidate = File(dir, base + "-" + counter + ext)
     }
     return candidate
+}
+
+private fun compressionLevelFor(settings: AppSettings?, format: CompressFormat): Int {
+    if (settings == null) return -1
+    if (CompressionLevels.spec(format) == null) return -1
+    return CompressionLevels.clamp(format, settings.compressionLevel(format))
+}
+
+private fun defaultCompressFormatFor(settings: AppSettings?): CompressFormat {
+    val chosen = settings?.defaultCompressFormatEnum() ?: CompressFormat.ZIP
+    return if (chosen == CompressFormat.ZIP || chosen == CompressFormat.SEVEN_Z) chosen else CompressFormat.ZIP
 }
 
 private fun treeUriToPrimaryPath(uri: Uri): File? {

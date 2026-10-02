@@ -1,4 +1,5 @@
 use karchiver_rs::backend;
+use karchiver_rs::backend::CompressionOptions;
 use karchiver_rs::format::Format;
 use karchiver_rs::io_util::Limits;
 
@@ -15,7 +16,14 @@ fn zip_detailed_is_sorted_with_sizes() {
     let src = dir.path().join("src");
     make_tree(&src);
     let dest = dir.path().join("out.zip");
-    backend::compress(&[src], &dest, Format::Zip, &Limits::default()).unwrap();
+    backend::compress(
+        &[src],
+        &dest,
+        Format::Zip,
+        &Limits::default(),
+        &CompressionOptions::default(),
+    )
+    .unwrap();
     let listing = backend::list_detailed(&dest, Format::Zip).unwrap();
     assert!(!listing.entries.is_empty());
     assert!(!listing.encrypted);
@@ -39,7 +47,14 @@ fn tar_detailed_lists_entries() {
     let src = dir.path().join("src");
     make_tree(&src);
     let dest = dir.path().join("out.tar.gz");
-    backend::compress(&[src], &dest, Format::TarGz, &Limits::default()).unwrap();
+    backend::compress(
+        &[src],
+        &dest,
+        Format::TarGz,
+        &Limits::default(),
+        &CompressionOptions::default(),
+    )
+    .unwrap();
     let listing = backend::list_detailed(&dest, Format::TarGz).unwrap();
     assert!(!listing.entries.is_empty());
     assert!(!listing.encrypted);
@@ -57,6 +72,7 @@ fn single_stream_detailed_lists_one_file() {
         &dest,
         Format::Gzip,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
     let listing = backend::list_detailed(&dest, Format::Gzip).unwrap();
@@ -71,7 +87,14 @@ fn sevenz_detailed_lists_entries() {
     let src = dir.path().join("src");
     make_tree(&src);
     let dest = dir.path().join("out.7z");
-    backend::compress(&[src], &dest, Format::SevenZ, &Limits::default()).unwrap();
+    backend::compress(
+        &[src],
+        &dest,
+        Format::SevenZ,
+        &Limits::default(),
+        &CompressionOptions::default(),
+    )
+    .unwrap();
     let listing = backend::list_detailed(&dest, Format::SevenZ).unwrap();
     assert!(!listing.entries.is_empty());
     assert!(listing.entries.iter().any(|e| e.name.ends_with("a.txt")));

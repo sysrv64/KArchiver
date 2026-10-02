@@ -48,6 +48,7 @@ class ArchiveService : Service() {
         const val EXTRA_ELEVATION = "extra_elevation"
         const val EXTRA_ONLY_NAMES = "extra_only_names"
         const val EXTRA_TASK_ID = "extra_task_id"
+        const val EXTRA_LEVEL = "extra_level"
         const val CHANNEL_ID = "archive_ops"
         const val DONE_CHANNEL_ID = "archive_done"
         const val NOTIFICATION_ID = 1
@@ -84,7 +85,8 @@ class ArchiveService : Service() {
             dest: File,
             format: CompressFormat,
             password: String?,
-            elevationMode: String
+            elevationMode: String,
+            level: Int = -1
         ) {
             val intent = Intent(context, ArchiveService::class.java)
             intent.action = ACTION_START
@@ -96,6 +98,7 @@ class ArchiveService : Service() {
             intent.putExtra(EXTRA_FORMAT, format.name)
             intent.putExtra(EXTRA_PASSWORD, password)
             intent.putExtra(EXTRA_ELEVATION, elevationMode)
+            intent.putExtra(EXTRA_LEVEL, level)
             context.startForegroundService(intent)
         }
 
@@ -118,10 +121,11 @@ class ArchiveService : Service() {
             dest: File,
             format: CompressFormat,
             password: String?,
-            elevationMode: String
+            elevationMode: String,
+            level: Int = -1
         ) {
             val taskId = TaskManager.create(TaskKind.COMPRESS, dest.name, dest.name)
-            startCompressTask(context, taskId, sources, dest, format, password, elevationMode)
+            startCompressTask(context, taskId, sources, dest, format, password, elevationMode, level)
         }
 
         fun startExtract(
@@ -156,7 +160,8 @@ class ArchiveService : Service() {
         val formatName: String?,
         val password: String?,
         val elevationMode: String,
-        val onlyNames: List<String>?
+        val onlyNames: List<String>?,
+        val level: Int = -1
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -234,7 +239,8 @@ class ArchiveService : Service() {
                     formatName = formatName,
                     password = password,
                     elevationMode = elevationMode,
-                    onlyNames = null
+                    onlyNames = null,
+                    level = intent.getIntExtra(EXTRA_LEVEL, -1)
                 )
             }
             OpKind.EXTRACT -> {
@@ -334,7 +340,7 @@ class ArchiveService : Service() {
                 } catch (_: Exception) {
                     CompressFormat.ZIP
                 }
-                repo.compress(sources, dest, format, spec.password, spec.taskId)
+                repo.compress(sources, dest, format, spec.password, spec.taskId, spec.level)
             }
             OpKind.EXTRACT -> {
                 repo.extract(

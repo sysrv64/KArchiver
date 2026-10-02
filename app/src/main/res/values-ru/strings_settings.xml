@@ -120,4 +120,21 @@
     <string name="settings_forget">Забыть</string>
     <string name="settings_storage_ungranted_note">Предпочтителен прямой доступ. Разрешите папку как резервный вариант.</string>
     <string name="settings_grant">Разрешить</string>
+    <string name="settings_category_archives">Настройки архивов</string>
+    <string name="settings_category_archives_subtitle">Уровни сжатия и формат по умолчанию</string>
+    <string name="settings_archives_section_general">Сжатие</string>
+    <string name="settings_archives_section_levels">Уровень сжатия для формата</string>
+    <string name="settings_archives_default_format">Формат архива по умолчанию</string>
+    <string name="settings_archives_compression_level">Уровень сжатия</string>
+    <string name="settings_archives_level_summary">Для %1$s</string>
+    <string name="settings_archives_choose_format_title">Выберите формат</string>
+    <string name="settings_archives_choose_level_title">Уровень сжатия для %1$s</string>
+    <string name="settings_archives_current_level">Текущий уровень: %1$s</string>
+    <string name="settings_archives_no_level_format">Уровня сжатия нет</string>
+    <string name="settings_archives_level_hint">Чем выше уровень, тем меньше архив и тем дольше сжатие.</string>
+    <string name="settings_archives_marker_store">Без сжатия</string>
+    <string name="settings_archives_marker_fastest">Быстрее всего</string>
+    <string name="settings_archives_marker_best">Максимум</string>
+    <string name="settings_archives_marker_plain">Между «быстрее всего» и «максимумом»</string>
+    <string name="settings_archives_tar_no_level">TAR только сохраняет файлы, у него нет уровня сжатия.</string>
 </resources>

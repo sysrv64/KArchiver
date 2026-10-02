@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use karchiver_rs::backend;
+use karchiver_rs::backend::CompressionOptions;
 use karchiver_rs::error::ArchiveError;
 use karchiver_rs::format::Format;
 use karchiver_rs::io_util::Limits;
@@ -31,6 +32,7 @@ fn zip_set_entry_meta_updates_only_target() {
         &archive,
         Format::Zip,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -77,6 +79,7 @@ fn zip_set_entry_meta_fields_are_independent() {
         &archive,
         Format::Zip,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -116,6 +119,7 @@ fn zip_set_entry_meta_rejects_missing_and_escaping_names() {
         &archive,
         Format::Zip,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -144,6 +148,7 @@ fn tar_set_entry_meta_updates_only_target() {
         &archive,
         Format::Tar,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -187,6 +192,7 @@ fn tar_gz_set_entry_meta_roundtrips() {
         &archive,
         Format::TarGz,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -219,6 +225,7 @@ fn zip_set_entry_meta_coerces_out_of_range_times() {
         &archive,
         Format::Zip,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
 

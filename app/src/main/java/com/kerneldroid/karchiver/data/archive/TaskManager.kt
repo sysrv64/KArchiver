@@ -81,11 +81,12 @@ object TaskManager {
         format: CompressFormat,
         password: String?,
         elevationMode: String,
-        title: String? = null
+        title: String? = null,
+        level: Int = -1
     ): Long {
         attach(context)
         val id = create(TaskKind.COMPRESS, title ?: dest.name, dest.name)
-        ArchiveService.startCompressTask(context, id, sources, dest, format, password, elevationMode)
+        ArchiveService.startCompressTask(context, id, sources, dest, format, password, elevationMode, level)
         return id
     }
 

@@ -13,9 +13,13 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kerneldroid.karchiver.R
+import com.kerneldroid.karchiver.data.AppSettings
+import com.kerneldroid.karchiver.data.CompressionLevels
 import com.kerneldroid.karchiver.data.FileItem
 import com.kerneldroid.karchiver.data.FileSystemRepository
 import com.kerneldroid.karchiver.data.CompressFormat
+import com.kerneldroid.karchiver.data.compressionLevel
+import com.kerneldroid.karchiver.data.defaultCompressFormatEnum
 import com.kerneldroid.karchiver.data.ConflictPolicy
 import com.kerneldroid.karchiver.data.conflictsAmong
 import com.kerneldroid.karchiver.data.topLevelNames
@@ -184,6 +188,17 @@ class BrowserViewModel(
 
     private var settingsRepo: SettingsRepository? = null
     private var favoritesJob: Job? = null
+    private var settingsJob: Job? = null
+
+    private val _defaultCompressFormat = MutableStateFlow(CompressFormat.ZIP)
+    val defaultCompressFormat: StateFlow<CompressFormat> = _defaultCompressFormat
+
+    private var appSettings: AppSettings = AppSettings()
+
+    private fun compressionLevelFor(format: CompressFormat): Int {
+        if (CompressionLevels.spec(format) == null) return -1
+        return CompressionLevels.clamp(format, appSettings.compressionLevel(format))
+    }
 
     fun bindFavorites(repo: SettingsRepository) {
         settingsRepo = repo
@@ -191,6 +206,13 @@ class BrowserViewModel(
         favoritesJob = viewModelScope.launch {
             repo.favorites.collect { favs ->
                 _state.update { it.copy(favorites = favs) }
+            }
+        }
+        settingsJob?.cancel()
+        settingsJob = viewModelScope.launch {
+            repo.settings.collect { value ->
+                appSettings = value
+                _defaultCompressFormat.value = value.defaultCompressFormatEnum()
             }
         }
     }
@@ -1007,7 +1029,7 @@ class BrowserViewModel(
         val safeName = normalizeArchiveName(name, format)
         val dest = File(_state.value.currentDir, safeName)
         clearSelection()
-        val taskId = TaskManager.startCompress(context, files, dest, format, password.ifEmpty { null }, _state.value.elevationMode)
+        val taskId = TaskManager.startCompress(context, files, dest, format, password.ifEmpty { null }, _state.value.elevationMode, level = compressionLevelFor(format))
         progressTaskId.value = taskId
         observeTask(taskId, onDone)
     }

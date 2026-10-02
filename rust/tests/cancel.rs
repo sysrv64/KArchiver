@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use karchiver_rs::backend;
+use karchiver_rs::backend::CompressionOptions;
 use karchiver_rs::error::ArchiveError;
 use karchiver_rs::format::Format;
 use karchiver_rs::io_util::{Limits, clear_cancel, request_cancel};
@@ -51,6 +52,7 @@ fn preset_flag_aborts_compress() {
         &dest,
         Format::Zip,
         &Limits::default(),
+        &CompressionOptions::default(),
     );
     clear_cancel();
     match result {

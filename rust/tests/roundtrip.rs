@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use karchiver_rs::backend;
+use karchiver_rs::backend::CompressionOptions;
 use karchiver_rs::format::Format;
 use karchiver_rs::io_util::Limits;
 use tempfile::tempdir;
@@ -25,6 +26,7 @@ fn assert_roundtrip(format: Format, archive_name: &str) {
         &dest,
         format,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
     assert!(dest.exists(), "archive was not created");
@@ -86,7 +88,14 @@ fn list_archive_entries() {
     let src = dir.path().join("src");
     make_tree(&src);
     let dest = dir.path().join("out.zip");
-    backend::compress(&[src], &dest, Format::Zip, &Limits::default()).unwrap();
+    backend::compress(
+        &[src],
+        &dest,
+        Format::Zip,
+        &Limits::default(),
+        &CompressionOptions::default(),
+    )
+    .unwrap();
 
     let entries = backend::list(&dest, Format::Zip).unwrap();
     assert!(entries.iter().any(|e| e.ends_with("hello.txt")));

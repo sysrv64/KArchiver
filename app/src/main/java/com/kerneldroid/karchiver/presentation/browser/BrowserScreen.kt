@@ -149,6 +149,7 @@ fun BrowserScreen(
     val verify by vm.verify.collectAsStateWithLifecycle()
     val volumes by vm.volumes.collectAsStateWithLifecycle()
     val grantRequest by vm.grantRequest.collectAsStateWithLifecycle()
+    val defaultCompressFormat by vm.defaultCompressFormat.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
@@ -766,7 +767,7 @@ fun BrowserScreen(
         val defaultArchiveBase = stringResource(R.string.browser_default_archive_base)
         var name by rememberSaveable { mutableStateOf(defaultArchiveName) }
         var password by remember { mutableStateOf("") }
-        var format by remember { mutableStateOf(CompressFormat.ZIP) }
+        var format by remember { mutableStateOf(defaultCompressFormat) }
         val formatScroll = rememberScrollState()
         val finalName = normalizeArchiveName(name.ifBlank { defaultArchiveBase }, format)
         AlertDialog(

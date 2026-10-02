@@ -17,6 +17,66 @@ use crate::error::{ArchiveError, Result};
 use crate::format::Format;
 use crate::io_util::{Limits, check_cancelled, log_warn, progress_reset, sanitize_entry_name};
 
+/// Encoder tuning shared by every compression backend.
+///
+/// `level` is `None` when the caller did not ask for a specific level, which
+/// keeps each backend on its own built-in default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CompressionOptions {
+    pub level: Option<i32>,
+}
+
+/// Valid level range of a single encoder family.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum LevelScale {
+    ZipDeflate,
+    Deflate,
+    Lzma,
+    Bzip2,
+    Zstd,
+    Rar,
+}
+
+impl LevelScale {
+    fn bounds(self) -> (i32, i32) {
+        match self {
+            Self::ZipDeflate => (1, 9),
+            Self::Deflate => (0, 9),
+            Self::Lzma => (0, 9),
+            Self::Bzip2 => (1, 9),
+            Self::Zstd => (1, 22),
+            Self::Rar => (0, 5),
+        }
+    }
+}
+
+impl CompressionOptions {
+    /// Requested level clamped into `scale`, or `None` when no level was asked
+    /// for. Callers must keep the `None` branch on the encoder default rather
+    /// than substituting a number here.
+    pub(crate) fn level_for(&self, scale: LevelScale) -> Option<i32> {
+        let (min, max) = scale.bounds();
+        self.level.map(|level| level.clamp(min, max))
+    }
+}
+
+/// Valid `(min, max)` level range for a format, or `None` for formats whose
+/// container or codec has no tunable level.
+///
+/// The Android settings model mirrors these bounds; the unit tests assert the
+/// two stay in step.
+pub fn format_level_bounds(format: Format) -> Option<(i32, i32)> {
+    Some(match format {
+        Format::Zip => (1, 9),
+        Format::Gzip | Format::TarGz => (0, 9),
+        Format::SevenZ | Format::Xz | Format::TarXz => (0, 9),
+        Format::TarBz2 | Format::Bzip2 => (1, 9),
+        Format::TarZst | Format::Zstd => (1, 22),
+        Format::Rar => (0, 5),
+        Format::Tar | Format::TarLz4 | Format::Lz4 => return None,
+    })
+}
+
 /// One file or directory selected for compression.
 #[derive(Debug, Clone)]
 pub struct SourceEntry {
@@ -174,13 +234,19 @@ pub fn collect_sources(
 }
 
 /// Compress `sources` into `dest` using the given format.
-pub fn compress(sources: &[PathBuf], dest: &Path, format: Format, limits: &Limits) -> Result<()> {
+pub fn compress(
+    sources: &[PathBuf],
+    dest: &Path,
+    format: Format,
+    limits: &Limits,
+    options: &CompressionOptions,
+) -> Result<()> {
     match format {
-        Format::Zip => zip::compress(sources, dest, limits),
-        Format::SevenZ => sevenz::compress(sources, dest, limits),
-        f if f.is_tar() => tar::compress(sources, dest, f, limits),
-        f if f.is_single_stream() => single::compress(sources, dest, f, limits),
-        Format::Rar => rar::compress(sources, dest, limits),
+        Format::Zip => zip::compress(sources, dest, limits, options),
+        Format::SevenZ => sevenz::compress(sources, dest, limits, options),
+        f if f.is_tar() => tar::compress(sources, dest, f, limits, options),
+        f if f.is_single_stream() => single::compress(sources, dest, f, limits, options),
+        Format::Rar => rar::compress(sources, dest, limits, options),
         other => Err(ArchiveError::Unsupported(format!(
             "compression to {} is not supported",
             other.label()
@@ -289,14 +355,19 @@ pub fn compress_with_password(
     format: Format,
     limits: &Limits,
     password: &str,
+    options: &CompressionOptions,
 ) -> Result<()> {
     if password.is_empty() {
-        return compress(sources, dest, format, limits);
+        return compress(sources, dest, format, limits, options);
     }
     match format {
-        Format::Zip => zip::compress_with_password(sources, dest, limits, password.as_bytes()),
-        Format::SevenZ => sevenz::compress_with_password(sources, dest, limits, password),
-        Format::Rar => rar::compress_with_password(sources, dest, limits, password.as_bytes()),
+        Format::Zip => {
+            zip::compress_with_password(sources, dest, limits, password.as_bytes(), options)
+        }
+        Format::SevenZ => sevenz::compress_with_password(sources, dest, limits, password, options),
+        Format::Rar => {
+            rar::compress_with_password(sources, dest, limits, password.as_bytes(), options)
+        }
         other => reject_password(other, "compression"),
     }
 }

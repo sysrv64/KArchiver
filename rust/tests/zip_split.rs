@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use karchiver_rs::backend;
+use karchiver_rs::backend::CompressionOptions;
 use karchiver_rs::error::ArchiveError;
 use karchiver_rs::format::Format;
 use karchiver_rs::io_util::Limits;
@@ -18,7 +19,14 @@ fn build_zip_bytes(dir: &Path) -> Vec<u8> {
     let src = dir.join("src");
     make_tree(&src);
     let dest = dir.join("orig.zip");
-    backend::compress(&[src], &dest, Format::Zip, &Limits::default()).unwrap();
+    backend::compress(
+        &[src],
+        &dest,
+        Format::Zip,
+        &Limits::default(),
+        &CompressionOptions::default(),
+    )
+    .unwrap();
     fs::read(&dest).unwrap()
 }
 

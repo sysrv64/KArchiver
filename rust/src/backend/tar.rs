@@ -17,8 +17,8 @@ use zstd::stream::read::Decoder as ZstdDecoder;
 use zstd::stream::write::Encoder as ZstdEncoder;
 
 use crate::backend::{
-    ContentMatch, PreviewEntry, PreviewListing, SourceEntry, TestFailure, TestReport,
-    collect_sources,
+    CompressionOptions, ContentMatch, LevelScale, PreviewEntry, PreviewListing, SourceEntry,
+    TestFailure, TestReport, collect_sources,
 };
 use crate::content_search::Scanner;
 use crate::error::{ArchiveError, Result, classify_io};
@@ -77,8 +77,44 @@ fn flush_buf(writer: BufWriter<File>) -> Result<()> {
     finish_bufwriter(writer).map(|_| ())
 }
 
+const XZ_DEFAULT_PRESET: u32 = 6;
+const ZSTD_DEFAULT_LEVEL: i32 = 3;
+
+fn gz_compression(options: &CompressionOptions) -> GzCompression {
+    match options.level_for(LevelScale::Deflate) {
+        Some(level) => GzCompression::new(level as u32),
+        None => GzCompression::default(),
+    }
+}
+
+fn bz2_compression(options: &CompressionOptions) -> BzCompression {
+    match options.level_for(LevelScale::Bzip2) {
+        Some(level) => BzCompression::new(level as u32),
+        None => BzCompression::default(),
+    }
+}
+
+fn xz_options(options: &CompressionOptions) -> XzOptions {
+    match options.level_for(LevelScale::Lzma) {
+        Some(level) => XzOptions::with_preset(level as u32),
+        None => XzOptions::with_preset(XZ_DEFAULT_PRESET),
+    }
+}
+
+fn zstd_level(options: &CompressionOptions) -> i32 {
+    options
+        .level_for(LevelScale::Zstd)
+        .unwrap_or(ZSTD_DEFAULT_LEVEL)
+}
+
 /// Compress `sources` into a tar (optionally wrapped) at `dest`.
-pub fn compress(sources: &[PathBuf], dest: &Path, format: Format, limits: &Limits) -> Result<()> {
+pub fn compress(
+    sources: &[PathBuf],
+    dest: &Path,
+    format: Format,
+    limits: &Limits,
+    options: &CompressionOptions,
+) -> Result<()> {
     let af = AtomicFile::new(dest)?;
     let entries = collect_sources(sources, &[dest, af.path()], limits)?;
     let mut state = LimitState::new(limits);
@@ -99,7 +135,7 @@ pub fn compress(sources: &[PathBuf], dest: &Path, format: Format, limits: &Limit
             flush_buf(inner)?;
         }
         Format::TarGz => {
-            let enc = GzEncoder::new(buf, GzCompression::default());
+            let enc = GzEncoder::new(buf, gz_compression(options));
             let mut builder = Builder::new(enc);
             for e in &entries {
                 check_cancelled()?;
@@ -110,7 +146,7 @@ pub fn compress(sources: &[PathBuf], dest: &Path, format: Format, limits: &Limit
             flush_buf(inner)?;
         }
         Format::TarBz2 => {
-            let enc = BzEncoder::new(buf, BzCompression::default());
+            let enc = BzEncoder::new(buf, bz2_compression(options));
             let mut builder = Builder::new(enc);
             for e in &entries {
                 check_cancelled()?;
@@ -121,7 +157,7 @@ pub fn compress(sources: &[PathBuf], dest: &Path, format: Format, limits: &Limit
             flush_buf(inner)?;
         }
         Format::TarXz => {
-            let enc = XzWriter::new(buf, XzOptions::with_preset(6))?;
+            let enc = XzWriter::new(buf, xz_options(options))?;
             let mut builder = Builder::new(enc);
             for e in &entries {
                 check_cancelled()?;
@@ -132,7 +168,7 @@ pub fn compress(sources: &[PathBuf], dest: &Path, format: Format, limits: &Limit
             flush_buf(inner)?;
         }
         Format::TarZst => {
-            let enc = ZstdEncoder::new(buf, 3)?;
+            let enc = ZstdEncoder::new(buf, zstd_level(options))?;
             let mut builder = Builder::new(enc);
             for e in &entries {
                 check_cancelled()?;
@@ -997,6 +1033,7 @@ mod edit_tests {
             &dest,
             Format::Tar,
             &Limits::default(),
+            &CompressionOptions::default(),
         )
         .unwrap();
         dest

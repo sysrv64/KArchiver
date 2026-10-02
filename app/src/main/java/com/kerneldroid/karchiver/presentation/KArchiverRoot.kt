@@ -109,6 +109,7 @@ import com.kerneldroid.karchiver.presentation.processes.ProcessesScreen
 import com.kerneldroid.karchiver.presentation.recents.RecentsScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsAboutScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsAppearanceScreen
+import com.kerneldroid.karchiver.presentation.settings.SettingsArchivesScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsCategory
 import com.kerneldroid.karchiver.presentation.settings.SettingsElevationScreen
 import com.kerneldroid.karchiver.presentation.settings.SettingsFilesScreen
@@ -720,6 +721,15 @@ fun KArchiverRoot(
         }
         composable(SettingsCategory.ELEVATION.route) {
             SettingsElevationScreen(
+                settings = settings ?: AppSettings(),
+                repo = settingsRepo,
+                onBack = { navController.popBackStack() },
+                barLifted = barLifted,
+                onToggleBar = { barLifted = !barLifted }
+            )
+        }
+        composable(SettingsCategory.ARCHIVES.route) {
+            SettingsArchivesScreen(
                 settings = settings ?: AppSettings(),
                 repo = settingsRepo,
                 onBack = { navController.popBackStack() },

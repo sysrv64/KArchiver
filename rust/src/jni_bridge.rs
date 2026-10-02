@@ -51,6 +51,12 @@ fn password_str(bytes: &WipedBytes) -> Result<&str> {
     std::str::from_utf8(&bytes.0).map_err(|_| ArchiveError::invalid("password is not valid UTF-8"))
 }
 
+fn compression_options(level: jint) -> backend::CompressionOptions {
+    backend::CompressionOptions {
+        level: if level < 0 { None } else { Some(level) },
+    }
+}
+
 fn read_sources(env: &mut Env, array: &JObjectArray) -> Result<Vec<PathBuf>> {
     let len = array
         .len(env)
@@ -167,7 +173,7 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_setLogFile
     }));
 }
 
-/// `compress(srcPaths: Array<String>, destPath: String): Int`
+/// `compress(srcPaths: Array<String>, destPath: String, level: Int): Int`
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compress(
     env: EnvUnowned,
@@ -175,6 +181,7 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compress(
     task_id: jlong,
     src_array: JObjectArray,
     dest_str: JString,
+    level: jint,
 ) -> jint {
     let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
     let env = guard.borrow_env_mut();
@@ -183,7 +190,13 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compress(
         let sources = read_sources(env, &src_array)?;
         let dest = PathBuf::from(read_string(env, &dest_str)?);
         let format = format::format_for_destination(&dest)?;
-        backend::compress(&sources, &dest, format, &Limits::default())
+        backend::compress(
+            &sources,
+            &dest,
+            format,
+            &Limits::default(),
+            &compression_options(level),
+        )
     }));
     finish_int(env, "compress", outcome)
 }
@@ -442,6 +455,7 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compressWi
     task_id: jlong,
     src_array: JObjectArray,
     dest_str: JString,
+    level: jint,
     password_bytes: JByteArray,
 ) -> jint {
     let mut guard = unsafe { AttachGuard::from_unowned(env.as_raw()) };
@@ -453,7 +467,14 @@ pub extern "system" fn Java_com_kerneldroid_karchiver_data_RustBridge_compressWi
         let password = read_password(env, &password_bytes)?;
         let pw = password_str(&password)?;
         let format = format::format_for_destination(&dest)?;
-        backend::compress_with_password(&sources, &dest, format, &Limits::default(), pw)
+        backend::compress_with_password(
+            &sources,
+            &dest,
+            format,
+            &Limits::default(),
+            pw,
+            &compression_options(level),
+        )
     }));
     finish_int(env, "compressWithPassword", outcome)
 }

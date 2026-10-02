@@ -15,7 +15,10 @@ use lzma_rust2::{XzOptions, XzReader, XzWriter};
 use zstd::stream::read::Decoder as ZstdDecoder;
 use zstd::stream::write::Encoder as ZstdEncoder;
 
-use crate::backend::{ContentMatch, PreviewEntry, PreviewListing, TestFailure, TestReport};
+use crate::backend::{
+    CompressionOptions, ContentMatch, LevelScale, PreviewEntry, PreviewListing, TestFailure,
+    TestReport,
+};
 use crate::content_search::Scanner;
 use crate::error::{ArchiveError, Result, classify_io};
 use crate::format::Format;
@@ -24,8 +27,44 @@ use crate::io_util::{
     finish_bufwriter, progress_reset, reject_symlink_ancestors, safe_join, set_file_mode,
 };
 
+const XZ_DEFAULT_PRESET: u32 = 6;
+const ZSTD_DEFAULT_LEVEL: i32 = 3;
+
+fn gz_compression(options: &CompressionOptions) -> GzCompression {
+    match options.level_for(LevelScale::Deflate) {
+        Some(level) => GzCompression::new(level as u32),
+        None => GzCompression::default(),
+    }
+}
+
+fn bz2_compression(options: &CompressionOptions) -> BzCompression {
+    match options.level_for(LevelScale::Bzip2) {
+        Some(level) => BzCompression::new(level as u32),
+        None => BzCompression::default(),
+    }
+}
+
+fn xz_options(options: &CompressionOptions) -> XzOptions {
+    match options.level_for(LevelScale::Lzma) {
+        Some(level) => XzOptions::with_preset(level as u32),
+        None => XzOptions::with_preset(XZ_DEFAULT_PRESET),
+    }
+}
+
+fn zstd_level(options: &CompressionOptions) -> i32 {
+    options
+        .level_for(LevelScale::Zstd)
+        .unwrap_or(ZSTD_DEFAULT_LEVEL)
+}
+
 /// Compress a single regular file as a raw compressed stream.
-pub fn compress(sources: &[PathBuf], dest: &Path, format: Format, limits: &Limits) -> Result<()> {
+pub fn compress(
+    sources: &[PathBuf],
+    dest: &Path,
+    format: Format,
+    limits: &Limits,
+    options: &CompressionOptions,
+) -> Result<()> {
     if sources.len() != 1 {
         return Err(ArchiveError::invalid(
             "single-stream formats require exactly one source file",
@@ -64,22 +103,22 @@ pub fn compress(sources: &[PathBuf], dest: &Path, format: Format, limits: &Limit
 
     match format {
         Format::Gzip => {
-            let mut enc = GzEncoder::new(buf, GzCompression::default());
+            let mut enc = GzEncoder::new(buf, gz_compression(options));
             io::copy(&mut limited, &mut enc).map_err(classify_io)?;
             finish_bufwriter(enc.finish()?)?;
         }
         Format::Bzip2 => {
-            let mut enc = BzEncoder::new(buf, BzCompression::default());
+            let mut enc = BzEncoder::new(buf, bz2_compression(options));
             io::copy(&mut limited, &mut enc).map_err(classify_io)?;
             finish_bufwriter(enc.finish()?)?;
         }
         Format::Xz => {
-            let mut enc = XzWriter::new(buf, XzOptions::with_preset(6))?;
+            let mut enc = XzWriter::new(buf, xz_options(options))?;
             io::copy(&mut limited, &mut enc).map_err(classify_io)?;
             finish_bufwriter(enc.finish()?)?;
         }
         Format::Zstd => {
-            let mut enc = ZstdEncoder::new(buf, 3)?;
+            let mut enc = ZstdEncoder::new(buf, zstd_level(options))?;
             io::copy(&mut limited, &mut enc).map_err(classify_io)?;
             finish_bufwriter(enc.finish()?)?;
         }

@@ -69,11 +69,22 @@ data class AppSettings(
     val searchInContent: Boolean = false,
     val searchInArchives: Boolean = true,
     val searchCaseSensitive: Boolean = false,
-    val searchMaxScanMb: Int = 5
+    val searchMaxScanMb: Int = 5,
+    val defaultCompressFormat: String = CompressFormat.ZIP.name,
+    val zipCompressionLevel: Int = 6,
+    val sevenZCompressionLevel: Int = 5,
+    val tarGzCompressionLevel: Int = 6,
+    val tarBz2CompressionLevel: Int = 6,
+    val tarXzCompressionLevel: Int = 6,
+    val tarZstCompressionLevel: Int = 3,
+    val rarCompressionLevel: Int = 3
 ) {
     val trashEnabled: Boolean get() = drawerTabs.contains(DRAWER_TAB_TRASH)
     val historyEnabled: Boolean get() = drawerTabs.contains(DRAWER_TAB_HISTORY)
 }
+
+fun AppSettings.defaultCompressFormatEnum(): CompressFormat =
+    runCatching { CompressFormat.valueOf(defaultCompressFormat) }.getOrNull() ?: CompressFormat.ZIP
 
 class SettingsRepository(private val appContext: Context) {
 
@@ -110,6 +121,14 @@ class SettingsRepository(private val appContext: Context) {
         val SEARCH_IN_ARCHIVES = booleanPreferencesKey("search_in_archives")
         val SEARCH_CASE_SENSITIVE = booleanPreferencesKey("search_case_sensitive")
         val SEARCH_MAX_SCAN_MB = intPreferencesKey("search_max_scan_mb")
+        val DEFAULT_COMPRESS_FORMAT = stringPreferencesKey("default_compress_format")
+        val ZIP_COMPRESSION_LEVEL = intPreferencesKey("zip_compression_level")
+        val SEVENZ_COMPRESSION_LEVEL = intPreferencesKey("sevenz_compression_level")
+        val TAR_GZ_COMPRESSION_LEVEL = intPreferencesKey("tar_gz_compression_level")
+        val TAR_BZ2_COMPRESSION_LEVEL = intPreferencesKey("tar_bz2_compression_level")
+        val TAR_XZ_COMPRESSION_LEVEL = intPreferencesKey("tar_xz_compression_level")
+        val TAR_ZST_COMPRESSION_LEVEL = intPreferencesKey("tar_zst_compression_level")
+        val RAR_COMPRESSION_LEVEL = intPreferencesKey("rar_compression_level")
         val FAVORITES = stringSetPreferencesKey("favorite_paths")
         val FAVORITE_ORDER = stringPreferencesKey("favorite_order")
     }
@@ -194,7 +213,15 @@ class SettingsRepository(private val appContext: Context) {
             searchInArchives = p[Keys.SEARCH_IN_ARCHIVES] ?: true,
             searchCaseSensitive = p[Keys.SEARCH_CASE_SENSITIVE] ?: false,
             searchMaxScanMb = p[Keys.SEARCH_MAX_SCAN_MB] ?: 5,
-            drawerTutorialSeen = p[Keys.DRAWER_TUTORIAL_SEEN] ?: false
+            drawerTutorialSeen = p[Keys.DRAWER_TUTORIAL_SEEN] ?: false,
+            defaultCompressFormat = p[Keys.DEFAULT_COMPRESS_FORMAT] ?: CompressFormat.ZIP.name,
+            zipCompressionLevel = p[Keys.ZIP_COMPRESSION_LEVEL] ?: 6,
+            sevenZCompressionLevel = p[Keys.SEVENZ_COMPRESSION_LEVEL] ?: 5,
+            tarGzCompressionLevel = p[Keys.TAR_GZ_COMPRESSION_LEVEL] ?: 6,
+            tarBz2CompressionLevel = p[Keys.TAR_BZ2_COMPRESSION_LEVEL] ?: 6,
+            tarXzCompressionLevel = p[Keys.TAR_XZ_COMPRESSION_LEVEL] ?: 6,
+            tarZstCompressionLevel = p[Keys.TAR_ZST_COMPRESSION_LEVEL] ?: 3,
+            rarCompressionLevel = p[Keys.RAR_COMPRESSION_LEVEL] ?: 3
         )
     }
 
@@ -285,5 +312,23 @@ class SettingsRepository(private val appContext: Context) {
 
     suspend fun setSearchMaxScanMb(value: Int) =
         appContext.dataStore.edit { it[Keys.SEARCH_MAX_SCAN_MB] = value }
+
+    suspend fun setDefaultCompressFormat(value: CompressFormat) =
+        appContext.dataStore.edit { it[Keys.DEFAULT_COMPRESS_FORMAT] = value.name }
+
+    suspend fun setCompressionLevel(format: CompressFormat, level: Int) {
+        val key = when (format) {
+            CompressFormat.ZIP -> Keys.ZIP_COMPRESSION_LEVEL
+            CompressFormat.SEVEN_Z -> Keys.SEVENZ_COMPRESSION_LEVEL
+            CompressFormat.TAR -> return
+            CompressFormat.TAR_GZ -> Keys.TAR_GZ_COMPRESSION_LEVEL
+            CompressFormat.TAR_BZ2 -> Keys.TAR_BZ2_COMPRESSION_LEVEL
+            CompressFormat.TAR_XZ -> Keys.TAR_XZ_COMPRESSION_LEVEL
+            CompressFormat.TAR_ZST -> Keys.TAR_ZST_COMPRESSION_LEVEL
+            CompressFormat.RAR -> Keys.RAR_COMPRESSION_LEVEL
+        }
+        val clamped = CompressionLevels.clamp(format, level)
+        appContext.dataStore.edit { it[key] = clamped }
+    }
 
 }

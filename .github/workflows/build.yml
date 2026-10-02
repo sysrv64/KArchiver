@@ -96,6 +96,14 @@ jobs:
             echo "KARCHIVER_DEBUG_KEY_PASSWORD=$DEBUG_STORE_PASSWORD"
           } >> "$GITHUB_ENV"
 
+      - name: Rust unit tests
+        run: cd rust && cargo test --locked
+
+      - name: Android unit tests
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testDebugUnitTest --no-daemon -x lint --stacktrace
+
       - name: Build debug APK
         run: |
           chmod +x ./gradlew

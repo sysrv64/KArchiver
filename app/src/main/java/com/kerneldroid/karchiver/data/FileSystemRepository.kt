@@ -506,7 +506,7 @@ class FileSystemRepository {
         }
     }
 
-    suspend fun compress(sources: List<File>, dest: File, format: CompressFormat = CompressFormat.ZIP, password: String? = null, taskId: Long = 0L): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun compress(sources: List<File>, dest: File, format: CompressFormat = CompressFormat.ZIP, password: String? = null, taskId: Long = 0L, level: Int = -1): Result<Unit> = withContext(Dispatchers.IO) {
         val fixed = File(dest.parentFile, normalizeArchiveName(dest.name, format))
         val bridge = if (safAutoFallback) safBridge else null
         val tmp = tempDir
@@ -559,9 +559,9 @@ class FileSystemRepository {
             } else {
                 val srcPaths = effectiveSources.map { it.absolutePath }.toTypedArray()
                 val code = if (password.isNullOrEmpty()) {
-                    RustBridge.compress(taskId, srcPaths, outFile.absolutePath)
+                    RustBridge.compress(taskId, srcPaths, outFile.absolutePath, level)
                 } else {
-                    withWipedPassword(password) { RustBridge.compressWithPassword(taskId, srcPaths, outFile.absolutePath, it) }
+                    withWipedPassword(password) { RustBridge.compressWithPassword(taskId, srcPaths, outFile.absolutePath, level, it) }
                 }
                 if (code != 0) error("Rust compress failed code=$code")
             }
@@ -1332,8 +1332,8 @@ object RustBridge {
         return result
     }
     @JvmStatic external fun setLogFile(path: String)
-    @JvmStatic external fun compress(taskId: Long, srcPaths: Array<String>, destPath: String): Int
-    @JvmStatic external fun compressWithPassword(taskId: Long, srcPaths: Array<String>, destPath: String, password: ByteArray): Int
+    @JvmStatic external fun compress(taskId: Long, srcPaths: Array<String>, destPath: String, level: Int): Int
+    @JvmStatic external fun compressWithPassword(taskId: Long, srcPaths: Array<String>, destPath: String, level: Int, password: ByteArray): Int
     @JvmStatic external fun extract(taskId: Long, archivePath: String, destDir: String): Int
     @JvmStatic external fun extractWithPassword(taskId: Long, archivePath: String, destDir: String, password: ByteArray): Int
     @JvmStatic external fun extractFiltered(taskId: Long, archivePath: String, destDir: String, names: Array<String>): Int

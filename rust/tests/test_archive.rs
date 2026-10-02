@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use karchiver_rs::backend;
+use karchiver_rs::backend::CompressionOptions;
 use karchiver_rs::format::Format;
 use karchiver_rs::io_util::Limits;
 
@@ -16,7 +17,14 @@ fn healthy_zip_passes() {
     let src = dir.path().join("src");
     make_tree(&src);
     let dest = dir.path().join("out.zip");
-    backend::compress(&[src], &dest, Format::Zip, &Limits::default()).unwrap();
+    backend::compress(
+        &[src],
+        &dest,
+        Format::Zip,
+        &Limits::default(),
+        &CompressionOptions::default(),
+    )
+    .unwrap();
     let report = backend::test_archive(&dest, Format::Zip, &Limits::default()).unwrap();
     assert!(report.ok());
     assert!(report.failures.is_empty());
@@ -68,6 +76,7 @@ fn corrupted_gzip_fails() {
         &dest,
         Format::Gzip,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
     let mut bytes = std::fs::read(&dest).unwrap();
@@ -88,7 +97,14 @@ fn healthy_tar_gz_passes() {
     let src = dir.path().join("src");
     make_tree(&src);
     let dest = dir.path().join("out.tar.gz");
-    backend::compress(&[src], &dest, Format::TarGz, &Limits::default()).unwrap();
+    backend::compress(
+        &[src],
+        &dest,
+        Format::TarGz,
+        &Limits::default(),
+        &CompressionOptions::default(),
+    )
+    .unwrap();
     let report = backend::test_archive(&dest, Format::TarGz, &Limits::default()).unwrap();
     assert!(report.ok());
     assert!(report.failures.is_empty());
@@ -103,7 +119,14 @@ fn healthy_sevenz_passes() {
     let src = dir.path().join("src");
     make_tree(&src);
     let dest = dir.path().join("out.7z");
-    backend::compress(&[src], &dest, Format::SevenZ, &Limits::default()).unwrap();
+    backend::compress(
+        &[src],
+        &dest,
+        Format::SevenZ,
+        &Limits::default(),
+        &CompressionOptions::default(),
+    )
+    .unwrap();
     let report = backend::test_archive(&dest, Format::SevenZ, &Limits::default()).unwrap();
     assert!(report.ok());
     assert!(report.failures.is_empty());
@@ -122,6 +145,7 @@ fn healthy_gzip_passes() {
         &dest,
         Format::Gzip,
         &Limits::default(),
+        &CompressionOptions::default(),
     )
     .unwrap();
     let report = backend::test_archive(&dest, Format::Gzip, &Limits::default()).unwrap();

@@ -1,6 +1,7 @@
 use std::fs;
 
 use karchiver_rs::backend;
+use karchiver_rs::backend::CompressionOptions;
 use karchiver_rs::error::ArchiveError;
 use karchiver_rs::format::Format;
 use karchiver_rs::io_util::Limits;
@@ -34,6 +35,7 @@ fn zip_aes_roundtrip_with_correct_password() {
         Format::Zip,
         &Limits::default(),
         PASSWORD,
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -71,6 +73,7 @@ fn zip_aes_wrong_password_is_typed() {
         Format::Zip,
         &Limits::default(),
         PASSWORD,
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -98,6 +101,7 @@ fn zip_aes_without_password_requires_password() {
         Format::Zip,
         &Limits::default(),
         PASSWORD,
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -125,6 +129,7 @@ fn sevenz_aes_roundtrip_with_correct_password() {
         Format::SevenZ,
         &Limits::default(),
         PASSWORD,
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -164,6 +169,7 @@ fn sevenz_aes_wrong_password_is_typed() {
         Format::SevenZ,
         &Limits::default(),
         PASSWORD,
+        &CompressionOptions::default(),
     )
     .unwrap();
 
@@ -196,6 +202,7 @@ fn empty_password_behaves_like_no_password() {
         Format::Zip,
         &Limits::default(),
         "",
+        &CompressionOptions::default(),
     )
     .unwrap();
     let listing = backend::list_detailed(&dest, Format::Zip).unwrap();
@@ -217,6 +224,7 @@ fn password_for_tar_is_unsupported() {
         Format::TarGz,
         &Limits::default(),
         PASSWORD,
+        &CompressionOptions::default(),
     ) {
         Err(ArchiveError::Unsupported(_)) => {}
         other => panic!("expected Unsupported, got {other:?}"),
