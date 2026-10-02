@@ -65,6 +65,7 @@ data class AppSettings(
     val copyPathQuotes: Boolean = false,
     val systemBrowsing: Boolean = false,
     val drawerTabs: List<String> = DEFAULT_DRAWER_TABS,
+    val drawerTutorialSeen: Boolean = false,
     val searchInContent: Boolean = false,
     val searchInArchives: Boolean = true,
     val searchCaseSensitive: Boolean = false,
@@ -104,6 +105,7 @@ class SettingsRepository(private val appContext: Context) {
         val SYSTEM_BROWSING = booleanPreferencesKey("system_browsing")
         val HISTORY_ENABLED = booleanPreferencesKey("history_enabled")
         val DRAWER_TABS = stringPreferencesKey("drawer_tabs")
+        val DRAWER_TUTORIAL_SEEN = booleanPreferencesKey("drawer_tutorial_seen")
         val SEARCH_IN_CONTENT = booleanPreferencesKey("search_in_content")
         val SEARCH_IN_ARCHIVES = booleanPreferencesKey("search_in_archives")
         val SEARCH_CASE_SENSITIVE = booleanPreferencesKey("search_case_sensitive")
@@ -191,7 +193,8 @@ class SettingsRepository(private val appContext: Context) {
             searchInContent = p[Keys.SEARCH_IN_CONTENT] ?: false,
             searchInArchives = p[Keys.SEARCH_IN_ARCHIVES] ?: true,
             searchCaseSensitive = p[Keys.SEARCH_CASE_SENSITIVE] ?: false,
-            searchMaxScanMb = p[Keys.SEARCH_MAX_SCAN_MB] ?: 5
+            searchMaxScanMb = p[Keys.SEARCH_MAX_SCAN_MB] ?: 5,
+            drawerTutorialSeen = p[Keys.DRAWER_TUTORIAL_SEEN] ?: false
         )
     }
 
@@ -232,6 +235,10 @@ class SettingsRepository(private val appContext: Context) {
 
     suspend fun setDrawerTabs(ids: List<String>) = appContext.dataStore.edit { p ->
         p[Keys.DRAWER_TABS] = ids.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")
+    }
+
+    suspend fun setDrawerTutorialSeen(value: Boolean) = appContext.dataStore.edit {
+        it[Keys.DRAWER_TUTORIAL_SEEN] = value
     }
 
     suspend fun setRarEnabled(value: Boolean) =

@@ -101,6 +101,7 @@ import com.kerneldroid.karchiver.presentation.browser.BrowserViewModel
 import com.kerneldroid.karchiver.presentation.browser.SearchSettings
 import com.kerneldroid.karchiver.presentation.browser.ViewMode
 import com.kerneldroid.karchiver.presentation.components.CustomNavigationDrawerItem
+import com.kerneldroid.karchiver.presentation.components.DrawerTabsTutorialDialog
 import com.kerneldroid.karchiver.presentation.components.ReorderableColumn
 import com.kerneldroid.karchiver.presentation.home.HomeScreen
 import com.kerneldroid.karchiver.presentation.history.HistoryScreen
@@ -270,6 +271,16 @@ fun KArchiverRoot(
     var emptyMenu by remember { mutableStateOf(false) }
     var restorePress by remember { mutableStateOf<Offset?>(null) }
     var externalSheetFile by remember { mutableStateOf<File?>(null) }
+    var showDrawerTutorial by remember { mutableStateOf(false) }
+    var drawerTutorialLaunched by remember { mutableStateOf(false) }
+
+    LaunchedEffect(settings) {
+        val s = settings ?: return@LaunchedEffect
+        if (!s.drawerTutorialSeen && !drawerTutorialLaunched) {
+            drawerTutorialLaunched = true
+            showDrawerTutorial = true
+        }
+    }
 
     LaunchedEffect(incomingFile, ready) {
         val file = incomingFile ?: return@LaunchedEffect
@@ -617,6 +628,7 @@ fun KArchiverRoot(
         }
         composable(RootRoute.HISTORY) {
             HistoryScreen(
+                vm = vm,
                 onBack = { navController.popBackStack() },
                 onOpenEntry = ::openHistoryEntry,
                 barLifted = barLifted,
@@ -625,6 +637,7 @@ fun KArchiverRoot(
         }
         composable(RootRoute.TRASH) {
             TrashScreen(
+                vm = vm,
                 onBack = { navController.popBackStack() },
                 elevationMode = settings?.elevationMode ?: "off",
                 barLifted = barLifted,
@@ -723,6 +736,14 @@ fun KArchiverRoot(
                 onToggleBar = { barLifted = !barLifted }
             )
         }
+    }
+    if (showDrawerTutorial) {
+        DrawerTabsTutorialDialog(
+            onDismiss = {
+                showDrawerTutorial = false
+                drawerScope.launch { settingsRepo.setDrawerTutorialSeen(true) }
+            }
+        )
     }
     if (activeTaskCount > 0 && progressTaskId == null && currentRoute != RootRoute.BROWSER) {
         val op = tasks.firstOrNull { it.isActive }

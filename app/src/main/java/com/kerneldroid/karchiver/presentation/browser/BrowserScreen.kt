@@ -92,6 +92,9 @@ import com.kerneldroid.karchiver.data.normalizeArchiveName
 import com.kerneldroid.karchiver.data.archive.TaskKind
 import com.kerneldroid.karchiver.data.archive.TaskStatus
 import com.kerneldroid.karchiver.presentation.LocalQuoteCopyPath
+import com.kerneldroid.karchiver.presentation.components.CreateFabMenu
+import com.kerneldroid.karchiver.presentation.components.CreateKind
+import com.kerneldroid.karchiver.presentation.components.CreateNameDialog
 import com.kerneldroid.karchiver.presentation.components.FileSearchField
 import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
 import com.kerneldroid.karchiver.presentation.components.detectBarHold
@@ -109,8 +112,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
-
-private enum class CreateKind { FOLDER, FILE }
 
 private enum class ExtractDest { HERE, NEW_FOLDER, CUSTOM }
 
@@ -1179,62 +1180,33 @@ fun BrowserScreen(
     }
 
     createKind?.let { kind ->
-        val defaultFolderName = stringResource(R.string.browser_new_folder)
-        val defaultFileName = stringResource(R.string.browser_new_file_name)
-        var name by rememberSaveable(kind) {
-            mutableStateOf(if (kind == CreateKind.FOLDER) defaultFolderName else defaultFileName)
-        }
-        AlertDialog(
-            onDismissRequest = { createKind = null },
-            icon = {
-                Icon(
-                    if (kind == CreateKind.FOLDER) Icons.Filled.CreateNewFolder else Icons.AutoMirrored.Filled.NoteAdd,
-                    null
-                )
-            },
-            title = {
-                Text(
-                    stringResource(
-                        if (kind == CreateKind.FOLDER) R.string.browser_new_folder else R.string.browser_new_file
-                    )
-                )
-            },
-            text = {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(stringResource(R.string.word_name)) },
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val target = kind
-                    createKind = null
-                    if (target == CreateKind.FOLDER) {
-                        vm.createFolder(name) { r ->
-                            scope.launch {
-                                snackbar.showSnackbar(
-                                    context.getString(
-                                        if (r.isSuccess) R.string.browser_folder_created else R.string.browser_create_folder_failed
-                                    )
+        CreateNameDialog(
+            kind = kind,
+            onConfirm = { name ->
+                createKind = null
+                if (kind == CreateKind.FOLDER) {
+                    vm.createFolder(name) { r ->
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                context.getString(
+                                    if (r.isSuccess) R.string.browser_folder_created else R.string.browser_create_folder_failed
                                 )
-                            }
-                        }
-                    } else {
-                        vm.createFile(name) { r ->
-                            scope.launch {
-                                snackbar.showSnackbar(
-                                    context.getString(
-                                        if (r.isSuccess) R.string.browser_file_created else R.string.browser_create_file_failed
-                                    )
-                                )
-                            }
+                            )
                         }
                     }
-                }) { Text(stringResource(R.string.browser_create)) }
+                } else {
+                    vm.createFile(name) { r ->
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                context.getString(
+                                    if (r.isSuccess) R.string.browser_file_created else R.string.browser_create_file_failed
+                                )
+                            )
+                        }
+                    }
+                }
             },
-            dismissButton = { TextButton(onClick = { createKind = null }) { Text(stringResource(R.string.action_cancel)) } }
+            onDismiss = { createKind = null }
         )
     }
 }
@@ -1271,44 +1243,6 @@ private fun ScrollTopButton(visible: Boolean, onClick: () -> Unit) {
         ) {
             Icon(Icons.Filled.KeyboardArrowUp, stringResource(R.string.browser_scroll_to_top))
         }
-    }
-}
-
-@Composable
-private fun CreateFabMenu(
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    onCreateFolder: () -> Unit,
-    onCreateFile: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    FloatingActionButtonMenu(
-        expanded = expanded,
-        modifier = modifier,
-        button = {
-            ToggleFloatingActionButton(
-                checked = expanded,
-                onCheckedChange = onExpandedChange
-            ) {
-                val rotation by animateFloatAsState(
-                    targetValue = if (expanded) 45f else 0f,
-                    animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
-                    label = "fabRotation"
-                )
-                Icon(Icons.Filled.Add, stringResource(R.string.browser_create), Modifier.rotate(rotation))
-            }
-        }
-    ) {
-        FloatingActionButtonMenuItem(
-            onClick = { onExpandedChange(false); onCreateFolder() },
-            icon = { Icon(Icons.Filled.CreateNewFolder, null) },
-            text = { Text(stringResource(R.string.browser_new_folder)) }
-        )
-        FloatingActionButtonMenuItem(
-            onClick = { onExpandedChange(false); onCreateFile() },
-            icon = { Icon(Icons.AutoMirrored.Filled.NoteAdd, null) },
-            text = { Text(stringResource(R.string.browser_new_file)) }
-        )
     }
 }
 

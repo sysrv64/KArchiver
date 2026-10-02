@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -58,35 +59,54 @@ import com.kerneldroid.karchiver.R
 import com.kerneldroid.karchiver.data.formatBytes
 import com.kerneldroid.karchiver.data.history.relativeTime
 import com.kerneldroid.karchiver.data.trash.TrashEntry
+import com.kerneldroid.karchiver.presentation.browser.BrowserViewModel
+import com.kerneldroid.karchiver.presentation.components.CreateFabMenu
+import com.kerneldroid.karchiver.presentation.components.CreateKind
+import com.kerneldroid.karchiver.presentation.components.CreateNameDialog
+import com.kerneldroid.karchiver.presentation.components.FileSearchField
 import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
 import com.kerneldroid.karchiver.presentation.components.detectBarHold
 import kotlinx.coroutines.launch
 
 @Composable
 fun TrashScreen(
+    vm: BrowserViewModel,
     onBack: () -> Unit,
     elevationMode: String = "off",
     barLifted: Boolean = false,
     onToggleBar: () -> Unit = {}
 ) {
-    BackHandler { onBack() }
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val vm: TrashViewModel = viewModel()
-    val entries by vm.entries.collectAsStateWithLifecycle()
-    val missing by vm.missing.collectAsStateWithLifecycle()
-    val busy by vm.busy.collectAsStateWithLifecycle()
+    val trashVm: TrashViewModel = viewModel()
+    val entries by trashVm.entries.collectAsStateWithLifecycle()
+    val missing by trashVm.missing.collectAsStateWithLifecycle()
+    val busy by trashVm.busy.collectAsStateWithLifecycle()
+    val hasAny by trashVm.hasAnyEntries.collectAsStateWithLifecycle()
+    val query by trashVm.queryText.collectAsStateWithLifecycle()
+    var searchActive by remember { mutableStateOf(false) }
+    var fabExpanded by remember { mutableStateOf(false) }
+    var createKind by remember { mutableStateOf<CreateKind?>(null) }
     var confirmEmpty by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<TrashEntry?>(null) }
 
     val now = remember(entries) { System.currentTimeMillis() }
     val totalSize = remember(entries) { entries.sumOf { it.size } }
 
+    BackHandler {
+        if (searchActive) {
+            searchActive = false
+            trashVm.setQuery("")
+        } else {
+            onBack()
+        }
+    }
+
     fun restore(entry: TrashEntry) {
         haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-        vm.restore(entry, elevationMode) { result ->
+        trashVm.restore(entry, elevationMode) { result ->
             result.fold(
                 onSuccess = { name ->
                     val message = if (name == entry.name) context.resources.getString(R.string.library_trash_restored, entry.name)
@@ -104,7 +124,7 @@ fun TrashScreen(
     }
 
     fun deleteForever(entry: TrashEntry) {
-        vm.deleteForever(entry, elevationMode) { result ->
+        trashVm.deleteForever(entry, elevationMode) { result ->
             val message = result.fold(
                 onSuccess = { context.resources.getString(R.string.library_trash_deleted) },
                 onFailure = { e -> e.message ?: context.resources.getString(R.string.library_trash_delete_failed) }
@@ -118,36 +138,63 @@ fun TrashScreen(
     RoundedTopScaffold(
         barLifted = barLifted,
         snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = {
+            if (!searchActive) {
+                CreateFabMenu(
+                    expanded = fabExpanded,
+                    onExpandedChange = { fabExpanded = it },
+                    onCreateFolder = { createKind = CreateKind.FOLDER },
+                    onCreateFile = { createKind = CreateKind.FILE }
+                )
+            }
+        },
         topBar = {
-            TopAppBar(
-                modifier = Modifier.detectBarHold {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onToggleBar()
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
-                ),
-                title = { Text(stringResource(R.string.library_trash_title)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.library_desc_back))
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = { confirmEmpty = true },
-                        enabled = entries.isNotEmpty() && !busy
-                    ) {
-                        Icon(Icons.Filled.DeleteSweep, stringResource(R.string.library_desc_empty_trash))
-                    }
+            Column {
+                if (searchActive) {
+                    FileSearchField(
+                        query = query,
+                        onQueryChange = trashVm::setQuery,
+                        onClose = {
+                            searchActive = false
+                            trashVm.setQuery("")
+                        },
+                        placeholder = stringResource(R.string.library_trash_search_hint)
+                    )
+                } else {
+                    TopAppBar(
+                        modifier = Modifier.detectBarHold {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleBar()
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent
+                        ),
+                        title = { Text(stringResource(R.string.library_trash_title)) },
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.library_desc_back))
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { searchActive = true }) {
+                                Icon(Icons.Filled.Search, stringResource(R.string.library_trash_search_hint))
+                            }
+                            IconButton(
+                                onClick = { confirmEmpty = true },
+                                enabled = entries.isNotEmpty() && !busy
+                            ) {
+                                Icon(Icons.Filled.DeleteSweep, stringResource(R.string.library_desc_empty_trash))
+                            }
+                        }
+                    )
                 }
-            )
+            }
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (entries.isEmpty()) {
-                TrashEmptyState()
+                TrashEmptyState(hasAny = hasAny)
             } else {
                 val summaryText = buildString {
                     append(context.resources.getQuantityString(R.plurals.library_trash_count, entries.size, entries.size))
@@ -193,7 +240,7 @@ fun TrashScreen(
                 Button(
                     onClick = {
                         confirmEmpty = false
-                        vm.empty(elevationMode) { result ->
+                        trashVm.empty(elevationMode) { result ->
                             val message = result.fold(
                                 onSuccess = { context.resources.getString(R.string.library_trash_emptied) },
                                 onFailure = { e -> e.message ?: context.resources.getString(R.string.library_trash_empty_failed) }
@@ -239,6 +286,31 @@ fun TrashScreen(
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.library_action_cancel)) }
             }
+        )
+    }
+
+    createKind?.let { kind ->
+        CreateNameDialog(
+            kind = kind,
+            onConfirm = { name ->
+                createKind = null
+                if (kind == CreateKind.FOLDER) {
+                    vm.createFolder(name) { result ->
+                        val message = context.resources.getString(
+                            if (result.isSuccess) R.string.browser_folder_created else R.string.browser_create_folder_failed
+                        )
+                        scope.launch { snackbar.showSnackbar(message) }
+                    }
+                } else {
+                    vm.createFile(name) { result ->
+                        val message = context.resources.getString(
+                            if (result.isSuccess) R.string.browser_file_created else R.string.browser_create_file_failed
+                        )
+                        scope.launch { snackbar.showSnackbar(message) }
+                    }
+                }
+            },
+            onDismiss = { createKind = null }
         )
     }
 }
@@ -311,7 +383,7 @@ private fun TrashItemRow(
 }
 
 @Composable
-private fun TrashEmptyState() {
+private fun TrashEmptyState(hasAny: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -320,12 +392,14 @@ private fun TrashEmptyState() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = stringResource(R.string.library_trash_empty_state_title),
+            text = if (hasAny) stringResource(R.string.library_trash_empty_filtered_title)
+            else stringResource(R.string.library_trash_empty_state_title),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = stringResource(R.string.library_trash_empty_state_sub),
+            text = if (hasAny) stringResource(R.string.library_trash_empty_filtered_sub)
+            else stringResource(R.string.library_trash_empty_state_sub),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp)

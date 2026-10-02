@@ -72,7 +72,11 @@ import com.kerneldroid.karchiver.data.history.HistorySection
 import com.kerneldroid.karchiver.data.history.HistoryTypeFilter
 import com.kerneldroid.karchiver.data.history.groupHistory
 import com.kerneldroid.karchiver.data.history.relativeTime
+import com.kerneldroid.karchiver.presentation.browser.BrowserViewModel
 import com.kerneldroid.karchiver.presentation.browser.copyPath
+import com.kerneldroid.karchiver.presentation.components.CreateFabMenu
+import com.kerneldroid.karchiver.presentation.components.CreateKind
+import com.kerneldroid.karchiver.presentation.components.CreateNameDialog
 import com.kerneldroid.karchiver.presentation.components.FileSearchField
 import com.kerneldroid.karchiver.presentation.components.RoundedTopScaffold
 import com.kerneldroid.karchiver.presentation.components.detectBarHold
@@ -115,26 +119,37 @@ private fun buildRows(sections: List<Pair<HistorySection, List<HistoryEntry>>>):
 
 @Composable
 fun HistoryScreen(
+    vm: BrowserViewModel,
     onBack: () -> Unit,
     onOpenEntry: (HistoryEntry) -> Boolean,
     barLifted: Boolean = false,
     onToggleBar: () -> Unit = {}
 ) {
-    BackHandler { onBack() }
     val quoteCopyPath = LocalQuoteCopyPath.current
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val vm: HistoryViewModel = viewModel()
-    val entries by vm.entries.collectAsStateWithLifecycle()
-    val hasAny by vm.hasAnyEntries.collectAsStateWithLifecycle()
-    val query by vm.queryText.collectAsStateWithLifecycle()
-    val filter by vm.filter.collectAsStateWithLifecycle()
-    val newestFirst by vm.sortNewestFirst.collectAsStateWithLifecycle()
+    val historyVm: HistoryViewModel = viewModel()
+    val entries by historyVm.entries.collectAsStateWithLifecycle()
+    val hasAny by historyVm.hasAnyEntries.collectAsStateWithLifecycle()
+    val query by historyVm.queryText.collectAsStateWithLifecycle()
+    val filter by historyVm.filter.collectAsStateWithLifecycle()
+    val newestFirst by historyVm.sortNewestFirst.collectAsStateWithLifecycle()
     var searchActive by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var openMenu by remember { mutableStateOf<String?>(null) }
+    var fabExpanded by remember { mutableStateOf(false) }
+    var createKind by remember { mutableStateOf<CreateKind?>(null) }
+
+    BackHandler {
+        if (searchActive) {
+            searchActive = false
+            historyVm.setQuery("")
+        } else {
+            onBack()
+        }
+    }
 
     val now = remember(entries) { System.currentTimeMillis() }
     val rows = remember(entries, now) { buildRows(groupHistory(entries, now)) }
@@ -149,7 +164,7 @@ fun HistoryScreen(
                     message = unavailableMessage,
                     actionLabel = removeLabel
                 )
-                if (result == SnackbarResult.ActionPerformed) vm.remove(entry.path)
+                if (result == SnackbarResult.ActionPerformed) historyVm.remove(entry.path)
             }
         }
     }
@@ -157,15 +172,25 @@ fun HistoryScreen(
     RoundedTopScaffold(
         barLifted = barLifted,
         snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = {
+            if (!searchActive) {
+                CreateFabMenu(
+                    expanded = fabExpanded,
+                    onExpandedChange = { fabExpanded = it },
+                    onCreateFolder = { createKind = CreateKind.FOLDER },
+                    onCreateFile = { createKind = CreateKind.FILE }
+                )
+            }
+        },
         topBar = {
             Column {
                 if (searchActive) {
                     FileSearchField(
                         query = query,
-                        onQueryChange = vm::setQuery,
+                        onQueryChange = historyVm::setQuery,
                         onClose = {
                             searchActive = false
-                            vm.setQuery("")
+                            historyVm.setQuery("")
                         },
                         placeholder = stringResource(R.string.library_history_search_hint)
                     )
@@ -211,13 +236,13 @@ fun HistoryScreen(
                         selected = filter == option,
                         onClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                            vm.setFilter(option)
+                            historyVm.setFilter(option)
                         },
                         label = { Text(filterLabel(option)) }
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = vm::toggleSort) {
+                IconButton(onClick = historyVm::toggleSort) {
                     Icon(
                         Icons.Filled.Sort,
                         if (newestFirst) stringResource(R.string.library_desc_newest_first) else stringResource(R.string.library_desc_oldest_first)
@@ -253,7 +278,7 @@ fun HistoryScreen(
                                         val copiedMessage = context.resources.getString(R.string.library_history_path_copied)
                                         scope.launch { snackbar.showSnackbar(copiedMessage) }
                                     },
-                                    onRemove = { vm.remove(row.entry.path) }
+                                    onRemove = { historyVm.remove(row.entry.path) }
                                 )
                             }
                         }
@@ -272,7 +297,7 @@ fun HistoryScreen(
                 Button(
                     onClick = {
                         confirmClear = false
-                        vm.clear()
+                        historyVm.clear()
                         val clearedMessage = context.resources.getString(R.string.library_history_cleared)
                         scope.launch { snackbar.showSnackbar(clearedMessage) }
                     },
@@ -287,6 +312,37 @@ fun HistoryScreen(
             dismissButton = {
                 TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.library_action_cancel)) }
             }
+        )
+    }
+
+    createKind?.let { kind ->
+        CreateNameDialog(
+            kind = kind,
+            onConfirm = { name ->
+                createKind = null
+                if (kind == CreateKind.FOLDER) {
+                    vm.createFolder(name) { r ->
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                context.getString(
+                                    if (r.isSuccess) R.string.browser_folder_created else R.string.browser_create_folder_failed
+                                )
+                            )
+                        }
+                    }
+                } else {
+                    vm.createFile(name) { r ->
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                context.getString(
+                                    if (r.isSuccess) R.string.browser_file_created else R.string.browser_create_file_failed
+                                )
+                            )
+                        }
+                    }
+                }
+            },
+            onDismiss = { createKind = null }
         )
     }
 }

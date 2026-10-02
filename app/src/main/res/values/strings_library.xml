@@ -13,6 +13,11 @@
     <string name="library_drawer_remove_tab">Remove %1$s</string>
     <string name="library_drawer_cannot_remove">%1$s can\'t be removed</string>
     <string name="library_drawer_usage">%1$s / %2$s</string>
+<string name="library_drawer_tutorial_title">Customize your menu</string>
+<string name="library_drawer_tutorial_move">Drag a tab to move it up or down</string>
+<string name="library_drawer_tutorial_remove">Touch and hold a tab to remove it</string>
+<string name="library_drawer_tutorial_add">Touch and hold an empty area to add a tab</string>
+<string name="library_drawer_tutorial_ok">Got it</string>
     <string name="library_progress_status">%1$s • %2$d%%</string>
     <string name="library_recents_title">Recents</string>
     <string name="library_desc_back">Back</string>
@@ -87,6 +92,9 @@
     <string name="library_trash_missing">Missing</string>
     <string name="library_trash_empty_state_title">Trash is empty</string>
     <string name="library_trash_empty_state_sub">Files you delete will appear here</string>
+<string name="library_trash_search_hint">Search trash</string>
+<string name="library_trash_empty_filtered_title">No matching entries</string>
+<string name="library_trash_empty_filtered_sub">Try a different search</string>
     <string name="library_search_files">Search files</string>
     <string name="library_desc_clear">Clear</string>
     <plurals name="library_recents_scanning_folders">

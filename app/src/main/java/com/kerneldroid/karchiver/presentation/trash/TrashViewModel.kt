@@ -4,13 +4,16 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kerneldroid.karchiver.data.elevation.elevationEngineFor
+import com.kerneldroid.karchiver.data.search.parseSearchQuery
 import com.kerneldroid.karchiver.data.trash.TrashEntry
 import com.kerneldroid.karchiver.data.trash.TrashRepository
+import com.kerneldroid.karchiver.data.trash.filterTrash
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -20,10 +23,22 @@ class TrashViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repo = TrashRepository.get(application)
 
-    val entries: StateFlow<List<TrashEntry>> = repo.entries
+    private val query = MutableStateFlow("")
+
+    val queryText: StateFlow<String> = query
+
+    private val stored: StateFlow<List<TrashEntry>> = repo.entries
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val missing: StateFlow<Set<String>> = entries
+    val entries: StateFlow<List<TrashEntry>> =
+        combine(stored, query) { list, q -> filterTrash(list, parseSearchQuery(q)) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val hasAnyEntries: StateFlow<Boolean> = stored
+        .map { it.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    val missing: StateFlow<Set<String>> = stored
         .map { list ->
             withContext(Dispatchers.IO) {
                 list.filter { !File(it.storedPath).exists() }.mapTo(HashSet()) { it.id }
@@ -33,6 +48,10 @@ class TrashViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
+
+    fun setQuery(value: String) {
+        query.value = value
+    }
 
     fun restore(entry: TrashEntry, elevationMode: String, onDone: (Result<String>) -> Unit) {
         viewModelScope.launch {

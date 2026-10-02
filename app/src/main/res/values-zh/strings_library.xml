@@ -13,6 +13,11 @@
     <string name="library_drawer_remove_tab">移除%1$s</string>
     <string name="library_drawer_cannot_remove">无法移除%1$s</string>
     <string name="library_drawer_usage">%1$s / %2$s</string>
+<string name="library_drawer_tutorial_title">自定义菜单</string>
+<string name="library_drawer_tutorial_move">拖动标签页可调整顺序</string>
+<string name="library_drawer_tutorial_remove">长按标签页可将其移除</string>
+<string name="library_drawer_tutorial_add">长按空白处可添加标签页</string>
+<string name="library_drawer_tutorial_ok">知道了</string>
     <string name="library_progress_status">%1$s • %2$d%%</string>
     <string name="library_recents_title">最近</string>
     <string name="library_desc_back">返回</string>
@@ -87,6 +92,9 @@
     <string name="library_trash_missing">已丢失</string>
     <string name="library_trash_empty_state_title">回收站为空</string>
     <string name="library_trash_empty_state_sub">您删除的文件将显示在这里</string>
+<string name="library_trash_search_hint">搜索回收站</string>
+<string name="library_trash_empty_filtered_title">没有匹配项</string>
+<string name="library_trash_empty_filtered_sub">试试其他搜索内容</string>
     <string name="library_search_files">搜索文件</string>
     <string name="library_desc_clear">清除</string>
     <plurals name="library_recents_scanning_folders">
