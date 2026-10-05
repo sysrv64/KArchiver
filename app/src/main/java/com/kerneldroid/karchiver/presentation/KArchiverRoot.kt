@@ -385,6 +385,7 @@ fun KArchiverRoot(
 
     LaunchedEffect(
         settings?.defaultSort,
+        settings?.defaultAscending,
         settings?.defaultView,
         settings?.foldersFirst,
         ready
@@ -393,6 +394,7 @@ fun KArchiverRoot(
         if (!ready) return@LaunchedEffect
         vm.applyExplorerPrefs(
             s.defaultSort,
+            s.defaultAscending,
             if (s.defaultView == "grid") ViewMode.GRID else ViewMode.LIST,
             s.foldersFirst
         )

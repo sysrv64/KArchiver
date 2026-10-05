@@ -53,6 +53,7 @@ data class AppSettings(
     val seedColor: Long? = null,
     val defaultSort: SortBy = SortBy.NAME,
     val defaultView: String = "list",
+    val defaultAscending: Boolean = true,
     val foldersFirst: Boolean = true,
     val confirmDelete: Boolean = true,
     val rarEnabled: Boolean = false,
@@ -102,6 +103,7 @@ class SettingsRepository(private val appContext: Context) {
         val SEED_COLOR = longPreferencesKey("seed_color")
         val DEFAULT_SORT = stringPreferencesKey("default_sort")
         val DEFAULT_VIEW = stringPreferencesKey("default_view")
+        val DEFAULT_ASCENDING = booleanPreferencesKey("default_ascending")
         val FOLDERS_FIRST = booleanPreferencesKey("folders_first")
         val CONFIRM_DELETE = booleanPreferencesKey("confirm_delete")
         val TRASH_ENABLED = booleanPreferencesKey("trash_enabled")
@@ -195,6 +197,7 @@ class SettingsRepository(private val appContext: Context) {
             defaultSort = p[Keys.DEFAULT_SORT]?.let { runCatching { SortBy.valueOf(it) }.getOrNull() }
                 ?: SortBy.NAME,
             defaultView = p[Keys.DEFAULT_VIEW] ?: "list",
+            defaultAscending = p[Keys.DEFAULT_ASCENDING] ?: true,
             foldersFirst = p[Keys.FOLDERS_FIRST] ?: true,
             confirmDelete = p[Keys.CONFIRM_DELETE] ?: true,
             rarEnabled = p[Keys.RAR_ENABLED] ?: false,
@@ -253,6 +256,9 @@ class SettingsRepository(private val appContext: Context) {
 
     suspend fun setDefaultView(value: String) =
         appContext.dataStore.edit { it[Keys.DEFAULT_VIEW] = value }
+
+    suspend fun setDefaultAscending(value: Boolean) =
+        appContext.dataStore.edit { it[Keys.DEFAULT_ASCENDING] = value }
 
     suspend fun setFoldersFirst(value: Boolean) =
         appContext.dataStore.edit { it[Keys.FOLDERS_FIRST] = value }

@@ -578,10 +578,10 @@ class BrowserViewModel(
         _state.value = _state.value.copy(rarWriteEnabled = value)
     }
 
-    fun applyExplorerPrefs(sortBy: SortBy, viewMode: ViewMode, foldersFirst: Boolean) {
+    fun applyExplorerPrefs(sortBy: SortBy, ascending: Boolean, viewMode: ViewMode, foldersFirst: Boolean) {
         val s = _state.value
-        if (s.sortBy == sortBy && s.viewMode == viewMode && s.foldersFirst == foldersFirst) return
-        _state.value = s.copy(sortBy = sortBy, viewMode = viewMode, foldersFirst = foldersFirst)
+        if (s.sortBy == sortBy && s.ascending == ascending && s.viewMode == viewMode && s.foldersFirst == foldersFirst) return
+        _state.value = s.copy(sortBy = sortBy, ascending = ascending, viewMode = viewMode, foldersFirst = foldersFirst)
         refresh()
     }
 
@@ -832,17 +832,34 @@ class BrowserViewModel(
         val s = _state.value
         val asc = if (s.sortBy == sort) !s.ascending else true
         _state.value = s.copy(sortBy = sort, ascending = asc)
+        persistExplorerPrefs(sort = sort, ascending = asc)
         refresh()
     }
 
     fun setAscending(ascending: Boolean) {
         if (_state.value.ascending == ascending) return
         _state.value = _state.value.copy(ascending = ascending)
+        persistExplorerPrefs(ascending = ascending)
         refresh()
     }
 
     fun setViewMode(mode: ViewMode) {
+        if (_state.value.viewMode == mode) return
         _state.value = _state.value.copy(viewMode = mode)
+        persistExplorerPrefs(viewMode = mode)
+    }
+
+    private fun persistExplorerPrefs(
+        sort: SortBy? = null,
+        ascending: Boolean? = null,
+        viewMode: ViewMode? = null
+    ) {
+        val repo = settingsRepo ?: return
+        viewModelScope.launch {
+            sort?.let { repo.setDefaultSort(it) }
+            ascending?.let { repo.setDefaultAscending(it) }
+            viewMode?.let { repo.setDefaultView(if (it == ViewMode.GRID) "grid" else "list") }
+        }
     }
 
     fun setQuery(q: String) {
