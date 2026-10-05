@@ -133,4 +133,7 @@
         <item quantity="many">Безвозвратно удалить все %1$d элементов? Это действие нельзя отменить.</item>
         <item quantity="other">Безвозвратно удалить все %1$d элементов? Это действие нельзя отменить.</item>
     </plurals>
+    <string name="library_native_fallback_title">Ограниченный режим</string>
+    <string name="library_native_fallback_message">Нативный архивный движок не загрузился, поэтому KArchiver перешёл на ограниченный встроенный резерв. Он создаёт и открывает только обычные ZIP-архивы, а архивы с паролем не поддерживаются.</string>
+    <string name="library_native_fallback_ok">Понятно</string>
 </resources>

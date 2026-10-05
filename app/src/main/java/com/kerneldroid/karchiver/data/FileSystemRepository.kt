@@ -1046,6 +1046,7 @@ class FileSystemRepository {
     }
 
     private fun fallbackTest(archive: File): TestReport {
+        NativeFallback.report()
         val zip = java.util.zip.ZipFile(archive)
         try {
             var total = 0L
@@ -1097,6 +1098,7 @@ class FileSystemRepository {
     }
 
     private fun fallbackPreview(archive: File): PreviewListing {
+        NativeFallback.report()
         val zip = java.util.zip.ZipFile(archive)
         try {
             val entries = zip.entries().asSequence().map { e ->
@@ -1116,6 +1118,7 @@ class FileSystemRepository {
     }
 
     private fun fallbackZip(sources: List<File>, dest: File) {
+        NativeFallback.report()
         java.util.zip.ZipOutputStream(dest.outputStream().buffered()).use { zos ->
             fun add(file: File, base: String) {
                 val entryName = if (base.isEmpty()) file.name else "$base/${file.name}"
@@ -1132,10 +1135,11 @@ class FileSystemRepository {
     }
 
     private fun fallbackUnzip(zip: File, destDir: File) {
+        NativeFallback.report()
         java.util.zip.ZipInputStream(zip.inputStream().buffered()).use { zis ->
             var entry = zis.nextEntry
             while (entry != null) {
-                val out = File(destDir, entry.name)
+                val out = safeArchiveEntryTarget(destDir, entry.name)
                 if (entry.isDirectory) out.mkdirs() else {
                     out.parentFile?.mkdirs()
                     out.outputStream().use { zis.copyTo(it) }
@@ -1145,6 +1149,7 @@ class FileSystemRepository {
             }
         }
     }
+
 
     suspend fun deleteArchiveEntries(archive: File, names: List<String>, password: String?): Result<Unit> = withContext(Dispatchers.IO) {
         if (names.isEmpty()) return@withContext Result.success(Unit)
@@ -1368,4 +1373,23 @@ object RustBridge {
 private inline fun <T> withWipedPassword(password: String, block: (ByteArray) -> T): T {
     val bytes = password.toByteArray(Charsets.UTF_8)
     try { return block(bytes) } finally { bytes.fill(0) }
+}
+
+internal fun safeArchiveEntryTarget(root: File, rawName: String): File {
+    require(rawName.isNotEmpty()) { "Archive entry has an empty name" }
+    val normalized = rawName.replace('\\', '/')
+    require(!normalized.contains('\u0000')) { "Archive entry name contains a NUL byte" }
+    require(!normalized.startsWith("/")) { "Archive entry has an absolute path" }
+    require(!(normalized.length >= 2 && normalized[0].isLetter() && normalized[1] == ':')) {
+        "Archive entry name has a drive letter"
+    }
+    val parts = normalized.split('/').filter { it.isNotEmpty() && it != "." }
+    require(parts.isNotEmpty()) { "Archive entry name resolves to nothing" }
+    require(parts.none { it == ".." }) { "Archive entry escapes the destination" }
+    val rootCanonical = root.canonicalFile
+    val target = File(rootCanonical, parts.joinToString("/")).canonicalFile
+    require(target.path.startsWith(rootCanonical.path + File.separator)) {
+        "Archive entry escapes the destination"
+    }
+    return target
 }

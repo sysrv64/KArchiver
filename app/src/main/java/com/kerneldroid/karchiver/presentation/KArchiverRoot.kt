@@ -88,6 +88,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.CompositionLocalProvider
 import com.kerneldroid.karchiver.data.AppSettings
 import com.kerneldroid.karchiver.data.DEFAULT_DRAWER_TABS
+import com.kerneldroid.karchiver.data.NativeFallback
 import com.kerneldroid.karchiver.data.SettingsRepository
 import com.kerneldroid.karchiver.data.insertDrawerTab
 import com.kerneldroid.karchiver.data.formatBytes
@@ -102,6 +103,7 @@ import com.kerneldroid.karchiver.presentation.browser.SearchSettings
 import com.kerneldroid.karchiver.presentation.browser.ViewMode
 import com.kerneldroid.karchiver.presentation.components.CustomNavigationDrawerItem
 import com.kerneldroid.karchiver.presentation.components.DrawerTabsTutorialDialog
+import com.kerneldroid.karchiver.presentation.components.NativeFallbackDialog
 import com.kerneldroid.karchiver.presentation.components.ReorderableColumn
 import com.kerneldroid.karchiver.presentation.home.HomeScreen
 import com.kerneldroid.karchiver.presentation.history.HistoryScreen
@@ -236,6 +238,7 @@ fun KArchiverRoot(
     }
     val vm: BrowserViewModel = viewModel()
     val browserState by vm.state.collectAsStateWithLifecycle()
+    val nativeFallbackActive by NativeFallback.active.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val motionScheme = MaterialTheme.motionScheme
     val recents by settingsRepo.recentFolders.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -744,6 +747,9 @@ fun KArchiverRoot(
                 onToggleBar = { barLifted = !barLifted }
             )
         }
+    }
+    if (nativeFallbackActive) {
+        NativeFallbackDialog(onDismiss = { NativeFallback.acknowledge() })
     }
     if (showDrawerTutorial) {
         DrawerTabsTutorialDialog(

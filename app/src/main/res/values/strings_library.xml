@@ -121,4 +121,7 @@
         <item quantity="one">Permanently delete 1 item? This cannot be undone.</item>
         <item quantity="other">Permanently delete all %1$d items? This cannot be undone.</item>
     </plurals>
+    <string name="library_native_fallback_title">Limited mode</string>
+    <string name="library_native_fallback_message">The native archive engine could not be loaded, so KArchiver switched to a limited built-in fallback. It only creates and opens plain ZIP archives, and password-protected archives are not supported.</string>
+    <string name="library_native_fallback_ok">Got it</string>
 </resources>

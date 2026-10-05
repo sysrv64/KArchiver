@@ -115,4 +115,7 @@
     <plurals name="library_trash_empty_text">
         <item quantity="other">要永久删除全部 %1$d 个项目吗？此操作无法撤销。</item>
     </plurals>
+    <string name="library_native_fallback_title">受限模式</string>
+    <string name="library_native_fallback_message">原生压缩引擎未能加载，KArchiver 已切换到受限的内置后备方案。它只能创建和打开普通 ZIP 压缩包，不支持加密压缩包。</string>
+    <string name="library_native_fallback_ok">知道了</string>
 </resources>
