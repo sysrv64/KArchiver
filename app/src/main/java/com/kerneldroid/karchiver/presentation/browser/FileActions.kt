@@ -502,7 +502,7 @@ fun copyPaths(context: Context, files: List<File>, quote: Boolean = false) {
 }
 
 internal fun joinPaths(files: List<File>, quote: Boolean): String =
-    files.joinToString("\n") { if (quote) "'${it.absolutePath}'" else it.absolutePath }
+    files.joinToString(" ") { if (quote) "'${it.absolutePath}'" else it.absolutePath }
 
 suspend fun queryOpenWith(context: Context, file: File, mime: String): List<ResolveInfo> =
     withContext(Dispatchers.IO) {

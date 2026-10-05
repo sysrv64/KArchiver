@@ -2,6 +2,7 @@ package com.kerneldroid.karchiver.presentation.browser
 
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class JoinPathsTest {
@@ -9,15 +10,30 @@ class JoinPathsTest {
     @Test
     fun plainPathsAreNotQuoted() {
         val files = listOf(File("/sdcard/Download/a.txt"), File("/sdcard/Download/b c.txt"))
-        assertEquals("/sdcard/Download/a.txt\n/sdcard/Download/b c.txt", joinPaths(files, quote = false))
+        assertEquals("/sdcard/Download/a.txt /sdcard/Download/b c.txt", joinPaths(files, quote = false))
     }
 
     @Test
     fun quotedPathsWrapEachPath() {
         val files = listOf(File("/sdcard/Download/a.txt"), File("/sdcard/Download/b c.txt"))
         assertEquals(
-            "'/sdcard/Download/a.txt'\n'/sdcard/Download/b c.txt'",
+            "'/sdcard/Download/a.txt' '/sdcard/Download/b c.txt'",
             joinPaths(files, quote = true)
+        )
+    }
+
+    @Test
+    fun multiplePathsShareASingleLine() {
+        val files = listOf(
+            File("/sdcard/Download/a.txt"),
+            File("/sdcard/Download/b.txt"),
+            File("/sdcard/Download/c.txt")
+        )
+        val joined = joinPaths(files, quote = true)
+        assertFalse(joined.contains('\n'))
+        assertEquals(
+            "'/sdcard/Download/a.txt' '/sdcard/Download/b.txt' '/sdcard/Download/c.txt'",
+            joined
         )
     }
 
