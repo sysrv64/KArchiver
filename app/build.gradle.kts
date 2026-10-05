@@ -139,7 +139,7 @@ tasks.register<Exec>("cargoBuild") {
         "-t", "x86_64",
         "--platform", "26",
         "-o", "../app/src/main/jniLibs",
-        "build", "--lib"
+        "build", "--release", "--lib"
     )
 }
 tasks.named("preBuild") { dependsOn("cargoBuild") }
